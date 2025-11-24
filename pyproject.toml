@@ -1,7 +1,7 @@
 [project]
 name = "nucleai"
 dynamic = ["version"]
-description = "Add your description here"
+description = "AI support for fusion experiments - feature extraction, embeddings, and natural language data analysis"
 readme = "README.md"
 authors = [
     { name = "Simon-McIntosh", email = "simon.mcintosh@iter.org" }
