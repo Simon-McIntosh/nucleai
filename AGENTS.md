@@ -8,6 +8,28 @@ The project also enables natural language data search, retrieval, analysis, and 
 
 ## Project Setup
 
+### Terminal Usage
+
+**Python execution**: Use `uv run` for all Python commands. This ensures the virtual environment is activated automatically.
+
+```bash
+# Run Python scripts
+uv run python script.py
+
+# Run modules
+uv run python -m nucleai.cli
+
+# Run pytest
+uv run pytest
+
+# Run with arguments
+uv run python -c "import nucleai; print(nucleai.__version__)"
+
+# Wrong: Don't use system Python or manual activation
+python script.py                    # May use wrong Python
+source .venv/bin/activate && python # Unnecessary
+```
+
 ### Package Management
 - **Package manager**: `uv`
 - **Add dependencies**: `uv add <package>`

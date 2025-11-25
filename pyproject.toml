@@ -7,7 +7,12 @@ authors = [
     { name = "Simon-McIntosh", email = "simon.mcintosh@iter.org" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "imas-python>=2.0.1",
+    "imas-simdb",
+    "matplotlib>=3.10.7",
+    "rich>=14.2.0",
+]
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -18,3 +23,12 @@ source = "vcs"
 
 [tool.hatch.build.hooks.vcs]
 version-file = "nucleai/_version.py"
+
+[tool.uv.sources]
+imas-simdb = { git = "https://github.com/iterorganization/SimDB.git", tag = "0.13.0" }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.1",
+    "pytest-cov>=7.0.0",
+]
