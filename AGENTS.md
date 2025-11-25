@@ -289,30 +289,33 @@ Write code as if it's always been this way.
 
 ### Discovery Pattern
 
-This codebase is designed for **runtime introspection**. Instead of reading external documentation, use Python's built-in `help()` system and introspection utilities.
+This codebase is designed for **runtime introspection**. Instead of reading external documentation, use the `get_docstring()` utility for non-interactive documentation access.
 
 **Step 1: Discover capabilities**
 ```python
+from nucleai.core.introspect import get_docstring, discover_capabilities
+
 import nucleai
-caps = nucleai.list_capabilities()
+print(get_docstring(nucleai))  # Read module overview
+caps = discover_capabilities()
 # Returns: {'core': 'nucleai.core', 'simdb': 'nucleai.simdb', ...}
 ```
 
 **Step 2: Explore a module**
 ```python
 import nucleai.simdb
-help(nucleai.simdb)  # Read module docstring with examples
+print(get_docstring(nucleai.simdb))  # Read module docstring with examples
 ```
 
 **Step 3: Understand a function**
 ```python
-help(nucleai.simdb.query)  # Get full documentation with examples
+print(get_docstring(nucleai.simdb.query))  # Get full documentation with examples
 ```
 
 **Step 4: Extract executable code**
 All docstrings contain executable examples you can copy:
 ```python
-# From help(nucleai.simdb.query):
+# From get_docstring(nucleai.simdb.query):
 results = await query({'machine': 'ITER'}, limit=5)
 for sim in results:
     print(f"{sim.alias}: {sim.code.name}")
@@ -323,9 +326,13 @@ for sim in results:
 For agents that need structured information:
 
 ```python
-from nucleai.core.introspect import get_function_signature, list_module_functions
+from nucleai.core.introspect import get_docstring, get_function_signature, list_module_functions
 
-# Get function signature
+# Get docstring (preferred for reading documentation)
+doc = get_docstring(nucleai.simdb.query)
+print(doc)  # Clean, formatted docstring with examples
+
+# Get function signature (for structured data)
 sig = get_function_signature(nucleai.simdb.query)
 print(sig['name'])         # 'query'
 print(sig['parameters'])   # {'constraints': 'dict[str, str]', 'limit': 'int', ...}
@@ -380,8 +387,15 @@ except AuthenticationError as e:
 Settings are documented in the config module:
 
 ```python
-from nucleai.core.config import get_settings
-help(get_settings)  # See all environment variables needed
+from nucleai.core.introspect import get_docstring
+from nucleai.core.config import Settings, get_settings
+
+# See all environment variables needed
+print(get_docstring(get_settings))
+
+# Get schema with all fields, types, and defaults
+schema = Settings.model_json_schema()
+print(f"Required fields: {schema['required']}")
 
 settings = get_settings()
 # Settings loaded from .env automatically
@@ -392,17 +406,19 @@ settings = get_settings()
 Complete workflow for an agent discovering and using nucleai:
 
 ```python
+from nucleai.core.introspect import get_docstring, discover_capabilities
+
 # 1. Start - discover what's available
 import nucleai
-print(nucleai.__doc__)  # Read module overview
-caps = nucleai.list_capabilities()
+print(get_docstring(nucleai))  # Read module overview
+caps = discover_capabilities()
 
 # 2. Pick a capability to explore
 import nucleai.simdb
-help(nucleai.simdb)  # Read SimDB documentation
+print(get_docstring(nucleai.simdb))  # Read SimDB documentation
 
 # 3. Learn about a specific function
-help(nucleai.simdb.query)  # Get usage examples
+print(get_docstring(nucleai.simdb.query))  # Get usage examples
 
 # 4. Copy example from docstring and adapt
 results = await nucleai.simdb.query(
@@ -412,7 +428,7 @@ results = await nucleai.simdb.query(
 
 # 5. Work with results (schema is documented)
 from nucleai.core.models import Simulation
-help(Simulation)  # Understand the data structure
+print(get_docstring(Simulation))  # Understand the data structure
 
 for sim in results:
     print(f"{sim.alias}: {sim.code.name} v{sim.code.version}")
@@ -420,16 +436,17 @@ for sim in results:
 
 ### Key Principles for Agents
 
-1. **Always start with `help()`** - Don't guess, read the docstrings
+1. **Always start with `get_docstring()`** - Don't guess, read the docstrings
 2. **Copy examples from docstrings** - They're tested and executable
 3. **Use introspection for structure** - `get_function_signature()` when you need details
 4. **Check exception recovery hints** - They tell you how to fix issues
 5. **Trust the types** - All functions have full type annotations
-6. **Configuration is self-documenting** - See `.env.example` and `help(get_settings)`
+6. **Configuration is self-documenting** - Use `Settings.model_json_schema()` and `get_docstring(get_settings)`
 
 ### What NOT to Do
 
-❌ Don't try to read source code directly - use `help()`
+❌ Don't try to read source code directly - use `get_docstring()`
+❌ Don't use interactive `help()` - use `get_docstring()` for non-interactive access
 ❌ Don't guess function signatures - use `get_function_signature()`
 ❌ Don't assume data structure - use `model_json_schema()`
 ❌ Don't hardcode values - use settings from environment
@@ -439,12 +456,16 @@ for sim in results:
 Validate what you've learned:
 
 ```python
+from nucleai.core.introspect import get_docstring, get_function_signature, discover_capabilities
+
 # Test 1: Can you list available capabilities?
-import nucleai
-assert 'simdb' in nucleai.list_capabilities()
+assert 'simdb' in discover_capabilities()
 
 # Test 2: Can you get function documentation?
 import nucleai.simdb
+doc = get_docstring(nucleai.simdb.query)
+assert len(doc) > 0
+
 sig = get_function_signature(nucleai.simdb.query)
 assert 'constraints' in sig['parameters']
 

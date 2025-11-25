@@ -1,2 +1,19 @@
 {
+  // GitHub Copilot settings
+  "github.copilot.chat.codeGeneration.instructions": [
+    {
+      "file": "AGENT_QUICKSTART.md"
+    },
+    {
+      "file": ".github/copilot-instructions.md"
+    }
+  ],
+  
+  // Workspace context files for Copilot
+  "github.copilot.chat.contextFiles": [
+    "AGENTS.md",
+    "AGENT_QUICKSTART.md",
+    ".github/copilot-instructions.md",
+    ".env.example"
+  ]
 }

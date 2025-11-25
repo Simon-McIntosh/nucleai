@@ -6,12 +6,19 @@ functions to explore available modules, inspect function signatures, and
 extract schema information.
 
 Functions:
+    get_docstring: Get cleaned docstring from any object
     get_function_signature: Extract complete function signature
     list_module_functions: List all public functions in a module
     get_model_schema: Get JSON schema from Pydantic model
     discover_capabilities: List all available nucleai capabilities
 
 Examples:
+    >>> from nucleai.core.introspect import get_docstring
+    >>> from nucleai.core.config import get_settings
+    >>> doc = get_docstring(get_settings)
+    >>> print('Examples:' in doc)
+    True
+
     >>> from nucleai.core.introspect import list_module_functions
     >>> import nucleai.core.models
     >>> functions = list_module_functions(nucleai.core.models)
@@ -19,7 +26,6 @@ Examples:
     ['CodeInfo', 'Simulation', 'QueryConstraint', ...]
 
     >>> from nucleai.core.introspect import get_function_signature
-    >>> from nucleai.core.config import get_settings
     >>> sig = get_function_signature(get_settings)
     >>> print(sig['returns'])
     Settings
@@ -30,6 +36,39 @@ from collections.abc import Callable
 from typing import Any
 
 import pydantic
+
+
+def get_docstring(obj: Any) -> str:
+    """Get cleaned docstring from any object.
+
+    Returns docstring with cleaned formatting, removing indentation artifacts.
+    Works on functions, classes, modules, and methods. This is the preferred
+    way for AI agents to access documentation non-interactively.
+
+    Args:
+        obj: Any Python object with a docstring
+
+    Returns:
+        Cleaned docstring text, or empty string if none exists
+
+    Examples:
+        >>> from nucleai.core.config import get_settings
+        >>> doc = get_docstring(get_settings)
+        >>> 'cached' in doc.lower()
+        True
+
+        >>> import nucleai.core.models
+        >>> doc = get_docstring(nucleai.core.models)
+        >>> len(doc) > 0
+        True
+
+        >>> # Works with classes too
+        >>> from nucleai.core.models import Simulation
+        >>> doc = get_docstring(Simulation)
+        >>> 'simulation' in doc.lower()
+        True
+    """
+    return inspect.getdoc(obj) or ""
 
 
 def get_function_signature(func: Callable) -> dict[str, Any]:

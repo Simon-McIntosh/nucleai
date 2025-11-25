@@ -4,11 +4,38 @@ import nucleai.core.models
 from nucleai.core.config import get_settings
 from nucleai.core.introspect import (
     discover_capabilities,
+    get_docstring,
     get_function_signature,
     get_model_schema,
     list_module_functions,
 )
 from nucleai.core.models import Simulation
+
+
+def test_get_docstring():
+    """Test extracting docstring from objects."""
+    # Test with function
+    doc = get_docstring(get_settings)
+    assert len(doc) > 0
+    assert "cached" in doc.lower()
+    assert "Settings" in doc
+
+    # Test with module
+    import nucleai.core.models
+
+    doc = get_docstring(nucleai.core.models)
+    assert len(doc) > 0
+
+    # Test with class
+    doc = get_docstring(Simulation)
+    assert len(doc) > 0
+
+    # Test with object without docstring
+    class NoDoc:
+        pass
+
+    doc = get_docstring(NoDoc)
+    assert doc == ""
 
 
 def test_get_function_signature():
