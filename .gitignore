@@ -11,3 +11,4 @@ wheels/
 
 # Automatically created files
 **/_version.py
+.env

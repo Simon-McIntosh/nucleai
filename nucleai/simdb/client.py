@@ -11,6 +11,29 @@ Functions:
     get_simulation: Get detailed simulation info by ID
     list_simulations: List recent simulations
 
+Metadata Fields:
+    Default fields: alias, machine
+
+    Request additional with include_metadata parameter:
+    - 'code.name', 'code.version', 'code.commit', 'code.repository'
+    - 'uploaded_by': Email address(es) of uploader (comma-separated)
+    - 'status': 'passed', 'pending', 'failed'
+    - 'description': Text description
+    - 'ids': Available IDS types (e.g., 'core_profiles', 'equilibrium')
+    - 'simulation.time_begin', 'simulation.time_end', 'simulation.time_step'
+    - 'ids_properties.creation_date', 'ids_properties.version_put.data_dictionary'
+    - Physics quantities: 'global_quantities.ip.value', 'heating_current_drive.*'
+    - 'composition.*', 'fusion.*', 'local.*', 'volume_average.*'
+
+    Note: Most physics fields empty in query output. Use 'simdb remote info <id>'
+    for full metadata. Explore schema: 'simdb remote schema --depth 3'
+
+Author Extraction:
+    Many simulations lack user metadata fields. Extract from alias instead:
+    - Named format: 'username/code/machine/...' -> extract 'username'
+    - Numeric format: '104001/11' -> no author available
+    Use split('/')[0] and check if isdigit() to distinguish formats.
+
 Examples:
     >>> from nucleai.simdb import query
     >>> help(query)
@@ -25,6 +48,22 @@ Examples:
 
     >>> # Multiple constraints (AND logic)
     >>> results = await query({'machine': 'ITER', 'status': 'passed'})
+
+    >>> # Request metadata fields (note: may be empty)
+    >>> results = await query(
+    ...     {'machine': 'ITER'},
+    ...     include_metadata=['code.name', 'code.version', 'user']
+    ... )
+
+    >>> # Extract author from alias when metadata unavailable
+    >>> import anyio
+    >>> cmd = ['uv', 'run', 'simdb', 'remote', 'query',
+    ...        'machine=ITER', 'code.name=in:JINTRAC',
+    ...        '-m', 'code.name', '--limit', '100']
+    >>> result = await anyio.run_process(cmd, check=True)
+    >>> output = result.stdout.decode()
+    >>> # Parse table and extract username from alias field:
+    >>> # if alias contains '/', split and check if first part isdigit()
 """
 
 import anyio
@@ -32,7 +71,7 @@ import anyio
 from nucleai.core.config import get_settings
 from nucleai.core.exceptions import ConnectionError
 from nucleai.core.models import Simulation
-from nucleai.simdb.auth import prepare_env
+from nucleai.simdb.auth import get_credentials
 from nucleai.simdb.parser import parse_query_output
 
 
@@ -71,10 +110,16 @@ class SimDBClient:
                 Operators: 'eq:', 'in:', 'gt:', 'ge:', 'lt:', 'le:'
                 Example: {'machine': 'ITER', 'code.name': 'in:METIS'}
             limit: Maximum number of results to return
-            include_metadata: Additional metadata fields to include
+            include_metadata: Additional metadata fields to include in query.
+                REQUIRED to get fields beyond alias and machine.
+                Common fields: 'uploaded_by' (email), 'code.name', 'code.version',
+                'status', 'description'.
+                Example: ['uploaded_by', 'code.name', 'code.version']
 
         Returns:
-            List of Simulation objects matching constraints
+            List of Simulation objects matching constraints.
+            Note: Parser currently maps limited fields. For rich metadata,
+            use run_process() directly and parse output table yourself.
 
         Raises:
             AuthenticationError: If credentials are invalid
@@ -108,12 +153,19 @@ class SimDBClient:
                 # Default to exact match
                 constraint_args.append(f"{field}={value}")
 
-        # Build command
+        # Get credentials
+        username, password = get_credentials()
+
+        # Build command with authentication
         cmd = [
             "uv",
             "run",
             "simdb",
             "remote",
+            "--username",
+            username,
+            "--password",
+            password,
             "query",
             *constraint_args,
             "--limit",
@@ -127,8 +179,7 @@ class SimDBClient:
 
         # Execute command
         try:
-            env = prepare_env()
-            result = await anyio.run_process(cmd, env=env, check=False)
+            result = await anyio.run_process(cmd, check=False)
 
             if result.returncode != 0:
                 error_msg = result.stderr.decode() if result.stderr else "Unknown error"
@@ -159,7 +210,10 @@ async def query(
     Args:
         constraints: Field-value pairs to filter by
         limit: Maximum number of results
-        include_metadata: Additional metadata fields
+        include_metadata: List of metadata fields to include in results.
+            IMPORTANT: Fields like uploaded_by, code.name, status, description
+            are only available if explicitly requested here. Default query
+            returns only alias and machine.
 
     Returns:
         List of Simulation objects matching constraints
@@ -170,9 +224,20 @@ async def query(
 
     Examples:
         >>> from nucleai.simdb import query
+
+        >>> # Basic query (only alias and machine)
         >>> results = await query({'machine': 'ITER'}, limit=5)
         >>> for sim in results:
         ...     print(sim.alias)
+
+        >>> # Query with metadata (including author emails)
+        >>> results = await query(
+        ...     {'machine': 'ITER', 'code.name': 'in:JINTRAC'},
+        ...     limit=10,
+        ...     include_metadata=['uploaded_by', 'code.name', 'code.version']
+        ... )
+        >>> for sim in results:
+        ...     print(f"{sim.alias}: {sim.uploaded_by}")
     """
     client = SimDBClient()
     return await client.query(constraints, limit, include_metadata)

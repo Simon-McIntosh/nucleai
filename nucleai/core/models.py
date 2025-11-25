@@ -6,15 +6,17 @@ formats through `help()` and `.model_json_schema()`.
 
 Classes:
     CodeInfo: Simulation code metadata
-    Simulation: ITER SimDB simulation record
+    Simulation: ITER SimDB simulation metadata (basic from query, extended from info)
     QueryConstraint: SimDB query constraint with operator
     SearchResult: Search result with similarity score
     FeatureMetadata: Feature extraction metadata
 
 Examples:
     >>> from nucleai.core.models import Simulation
-    >>> help(Simulation)
-    >>> print(Simulation.model_json_schema())
+    >>> # Discover available fields
+    >>> print(Simulation.model_json_schema()['properties'].keys())
+    >>>
+    >>> # Basic simulation from query
     >>> sim = Simulation(
     ...     uuid="123e4567-e89b-12d3-a456-426614174000",
     ...     alias="ITER-001",
@@ -22,6 +24,18 @@ Examples:
     ...     code=CodeInfo(name="METIS", version="1.0.0"),
     ...     description="Baseline scenario",
     ...     status="passed"
+    ... )
+    >>>
+    >>> # Extended simulation from info (optional fields populated)
+    >>> detail = Simulation(
+    ...     uuid="123...",
+    ...     alias="ITER-001",
+    ...     machine="ITER",
+    ...     code=CodeInfo(name="METIS", version="1.0"),
+    ...     description="Baseline",
+    ...     status="passed",
+    ...     uploaded_by="user@iter.org",
+    ...     global_quantities={"ip": -15e6, "beta_tor_norm": 0.26}
     ... )
 """
 
@@ -52,28 +66,53 @@ class CodeInfo(pydantic.BaseModel):
 class Simulation(pydantic.BaseModel):
     """ITER SimDB simulation metadata.
 
+    Single model for both query results and detailed info. Basic fields
+    (uuid, alias, machine, code, description, status) always present.
+    Extended fields (uploaded_by, physics quantities) optional, populated
+    from 'simdb remote info <id>'.
+
     Attributes:
         uuid: Unique simulation identifier (UUID format)
-        alias: Human-readable alias (e.g., "ITER-001")
+        alias: Human-readable alias (e.g., "ITER-001" or "username/code/machine/...")
         machine: Machine name (e.g., "ITER")
         code: Simulation code information
         description: Detailed simulation description
         status: Validation status (passed, failed, pending)
+        uploaded_by: Email address(es) of uploader (from info)
+        ids: Available IDS types (from info, e.g., ['core_profiles', 'equilibrium'])
+        time_begin: Simulation start time (from info)
+        time_end: Simulation end time (from info)
+        time_step: Time step size (from info)
+        creation_date: IDS creation timestamp (from info)
+        global_quantities: Physics quantities like ip, energy, beta (from info)
+        composition: Plasma composition fractions (from info)
+        heating: Heating and current drive powers (from info)
 
     Examples:
         >>> from nucleai.core.models import CodeInfo, Simulation
+        >>> # Basic from query
         >>> sim = Simulation(
         ...     uuid="123e4567-e89b-12d3-a456-426614174000",
         ...     alias="ITER-001",
         ...     machine="ITER",
         ...     code=CodeInfo(name="METIS", version="1.0.0"),
-        ...     description="Baseline ITER scenario with 15MA plasma current",
+        ...     description="Baseline ITER scenario",
         ...     status="passed"
         ... )
-        >>> print(sim.alias)
-        ITER-001
-        >>> print(sim.code.name)
-        METIS
+        >>>
+        >>> # Extended from info
+        >>> detail = Simulation(
+        ...     uuid="123...",
+        ...     alias="ITER-001",
+        ...     machine="ITER",
+        ...     code=CodeInfo(name="METIS", version="1.0"),
+        ...     description="Baseline",
+        ...     status="passed",
+        ...     uploaded_by="user@iter.org",
+        ...     global_quantities={"ip": -15e6, "beta_tor_norm": 0.26}
+        ... )
+        >>> print(detail.global_quantities["ip"])
+        -15000000.0
     """
 
     uuid: str
@@ -82,6 +121,15 @@ class Simulation(pydantic.BaseModel):
     code: CodeInfo
     description: str
     status: Literal["passed", "failed", "pending"]
+    uploaded_by: str | None = None
+    ids: list[str] | None = None
+    time_begin: float | None = None
+    time_end: float | None = None
+    time_step: float | None = None
+    creation_date: str | None = None
+    global_quantities: dict[str, float | list[float]] = pydantic.Field(default_factory=dict)
+    composition: dict[str, float] = pydantic.Field(default_factory=dict)
+    heating: dict[str, float] = pydantic.Field(default_factory=dict)
 
 
 QueryOperator = Literal["eq", "in", "gt", "ge", "lt", "le", "agt", "age", "alt", "ale"]

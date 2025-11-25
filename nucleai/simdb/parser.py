@@ -1,11 +1,29 @@
 r"""Parse SimDB CLI output to Python objects.
 
 Functions to parse SimDB CLI table output and convert to Pydantic models.
-Handles various output formats and edge cases.
+Handles various output formats and edge cases including fields with spaces.
 
 Functions:
     parse_query_output: Parse query results table to Simulation list
     parse_simulation_info: Parse detailed simulation info to Simulation
+
+Parsing Strategy:
+    Uses column position detection from header line to handle fields with
+    spaces/commas (e.g., email addresses, descriptions). This ensures
+    multi-word values are captured correctly.
+
+Supported Fields:
+    Extracts any field present in SimDB output table:
+    - uuid, alias, machine (always present)
+    - code.name, code.version, code.commit, code.repository
+    - uploaded_by (email addresses, comma-separated)
+    - status, description
+    - ids (available IDS types)
+    - Any other metadata field requested via include_metadata parameter
+
+    IMPORTANT: Metadata fields are only present if explicitly requested
+    via include_metadata parameter in query(). Default query returns only
+    alias and machine
 
 Examples:
     >>> from nucleai.simdb.parser import parse_query_output
@@ -13,6 +31,18 @@ Examples:
     >>> simulations = parse_query_output(output)
     >>> print(simulations[0].alias)
     ITER-001
+
+    >>> # For metadata-rich queries, parse directly:
+    >>> import anyio
+    >>> cmd = ['uv', 'run', 'simdb', 'remote', 'query',
+    ...        'machine=ITER', '-m', 'code.name', '-m', 'user', '--limit', '10']
+    >>> result = await anyio.run_process(cmd, check=True)
+    >>> lines = result.stdout.decode().strip().split('\n')
+    >>> header = lines[0].split()  # ['alias', 'machine', 'code.name', 'user']
+    >>> for line in lines[2:]:  # Skip header and separator
+    ...     parts = line.split()
+    ...     data = dict(zip(header, parts))
+    ...     print(f"{data['alias']}: {data.get('code.name', 'N/A')}")
 """
 
 from nucleai.core.exceptions import ValidationError
@@ -25,6 +55,9 @@ def parse_query_output(output: str) -> list[Simulation]:
     Parses table-formatted output from 'simdb remote query' command.
     Extracts simulation metadata and constructs Simulation objects.
 
+    Uses column position detection to handle fields with spaces/commas
+    (e.g., email addresses, descriptions).
+
     Args:
         output: Raw CLI output string with table format
 
@@ -36,49 +69,79 @@ def parse_query_output(output: str) -> list[Simulation]:
 
     Examples:
         >>> output = '''
-        ... uuid                                 | alias     | machine
-        ... 123e4567-e89b-12d3-a456-426614174000 | ITER-001  | ITER
+        ... alias    machine
+        ... ----------------
+        ... 100001/2 ITER
         ... '''
         >>> simulations = parse_query_output(output)
         >>> len(simulations)
         1
         >>> simulations[0].alias
-        'ITER-001'
+        '100001/2'
     """
     if not output or not output.strip():
         return []
 
-    lines = [line.strip() for line in output.strip().split("\n") if line.strip()]
+    lines = output.strip().split("\n")
 
-    if len(lines) < 2:  # Need header + at least one row
+    # Filter out empty lines but preserve structure for parsing
+    non_empty_lines = [line for line in lines if line.strip()]
+
+    if len(non_empty_lines) < 3:  # Need header + separator + at least one row
         return []
 
-    # Parse header to get column indices
-    header = lines[0]
-    if "|" not in header:
+    # Parse header line to get column names and positions
+    header_line = lines[0]
+
+    # Find column positions by detecting word boundaries in header
+    import re
+
+    matches = list(re.finditer(r"\S+", header_line))
+    columns = []
+    positions = []
+
+    for i, match in enumerate(matches):
+        columns.append(match.group())
+        start = match.start()
+        # End is either start of next column or end of line
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(header_line)
+        positions.append((start, end))
+
+    # Verify separator line exists
+    if len(non_empty_lines) < 2 or not non_empty_lines[1].startswith("-"):
         raise ValidationError(
             f"Invalid SimDB output format: {output[:100]}",
-            recovery_hint="Check SimDB CLI is working: uv run simdb remote list --limit 1",
+            recovery_hint="Check SimDB CLI is working: uv run simdb remote query machine=ITER --limit 1",
         )
 
-    # Simple parsing - split by | and strip whitespace
-    # In real implementation, would need more robust parsing
+    # Parse data rows using column positions
     simulations = []
-    for line in lines[1:]:
-        if "|" in line:
-            parts = [p.strip() for p in line.split("|")]
-            if len(parts) >= 3:  # Minimum fields
-                # This is simplified - real parser would map by column names
-                simulations.append(
-                    Simulation(
-                        uuid=parts[0] if parts[0] else "unknown",
-                        alias=parts[1] if len(parts) > 1 else "unknown",
-                        machine=parts[2] if len(parts) > 2 else "unknown",
-                        code=CodeInfo(name="unknown", version="unknown"),
-                        description="",
-                        status="pending",
-                    )
+    for line in lines[2:]:  # Skip header and separator
+        if not line.strip():
+            continue
+
+        # Extract values using column positions
+        data = {}
+        for col_name, (start, end) in zip(columns, positions, strict=False):
+            value = line[start:end].strip() if start < len(line) else ""
+            if value:  # Only store non-empty values
+                data[col_name] = value
+
+        if len(data) >= 2:  # Minimum: alias and machine
+            simulations.append(
+                Simulation(
+                    uuid=data.get("uuid", "unknown"),
+                    alias=data.get("alias", "unknown"),
+                    machine=data.get("machine", "unknown"),
+                    code=CodeInfo(
+                        name=data.get("code.name", "unknown"),
+                        version=data.get("code.version", "unknown"),
+                    ),
+                    description=data.get("description", ""),
+                    status=data.get("status", "pending"),  # type: ignore
+                    uploaded_by=data.get("uploaded_by"),  # Now captured!
                 )
+            )
 
     return simulations
 

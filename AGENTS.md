@@ -55,6 +55,12 @@ cd /home/ITER/mcintos/Code/nucleai && uv run pytest
 - **Pre-commit hooks**: Enabled for all commits
 - **Linting & formatting**: `ruff` (configuration in `pyproject.toml`)
 
+### Security
+- **NEVER expose `.env` file contents**: Do not read, display, or include `.env` in any output
+- **Credentials**: `.env` contains sensitive credentials (SIMDB, API keys) and is gitignored
+- **Configuration access**: Use `get_settings()` to access configuration programmatically
+- **If configuration needed**: Reference `.env.example` instead, which has placeholder values
+
 ### Version Control
 - **Branch naming**: Use `main` as default branch
 - **GitHub CLI**: `gh` is installed in `~/.local/bin` and available in PATH
