@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Automatically created files
+**/_version.py
