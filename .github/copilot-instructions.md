@@ -1,5 +1,7 @@
 # GitHub Copilot Instructions for nucleai
 
+Run code to discover APIs through introspection rather than reading source files.
+
 ## Codegen-First Approach
 
 This library is designed for runtime introspection. Always prefer executing code over reading source files.
