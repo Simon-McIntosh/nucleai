@@ -1,30 +1,29 @@
 """SimDB client for querying ITER simulation database.
 
 Provides async Python interface to SimDB REST API. Uses httpx for HTTP
-requests with authentication and connection pooling.
+requests with authentication and connection pooling. All queries automatically
+fetch important metadata fields.
 
 Classes:
     SimDBClient: Async client for SimDB REST API operations
 
 Functions:
-    query: Query simulations with constraints
+    query: Query simulations (auto-fetches metadata)
     get_simulation: Get detailed simulation info by ID
     list_simulations: List recent simulations
-    discover_available_fields: Get available metadata fields from API
+    discover_available_fields: Get all available fields from API
 
-Metadata Fields:
-    Request with include_metadata parameter:
-    - 'code.name', 'code.version', 'code.commit', 'code.repository'
-    - 'uploaded_by': Email address(es) of uploader (comma-separated)
-    - 'status': 'passed', 'pending', 'failed'
-    - 'description': Text description
-    - 'ids': Available IDS types (e.g., 'core_profiles', 'equilibrium')
-    - 'simulation.time_begin', 'simulation.time_end', 'simulation.time_step'
-    - 'ids_properties.creation_date', 'ids_properties.version_put.data_dictionary'
-    - Physics quantities: 'global_quantities.ip.value', 'heating_current_drive.*'
-    - 'composition.*', 'fusion.*', 'local.*', 'volume_average.*'
+Metadata:
+    Automatically fetched for all queries:
+    - description: Detailed scenario description with parameters
+    - uploaded_by: Author email(s)
+    - datetime: Upload timestamp
+    - ids_properties.creation_date: IDS file creation date
+    - ids_properties.version_put.data_dictionary: IDS schema version
+    - ids_properties.homogeneous_time: Time grid structure
 
-    Use discover_available_fields() to query current API schema dynamically.
+    For additional data (physics parameters, time series):
+    Use IDS file download with simulation UUID (coming soon)
 
 HTTP Error Codes:
     - 401 Unauthorized: Invalid credentials (check SIMDB_USERNAME/PASSWORD)
@@ -36,28 +35,17 @@ Examples:
     >>> from nucleai.simdb import query
     >>> help(query)
 
-    >>> # Query ITER simulations
+    >>> # Query ITER simulations (metadata auto-fetched)
     >>> results = await query({'machine': 'ITER'}, limit=5)
     >>> for sim in results:
-    ...     print(f"{sim.alias}: {sim.code.name}")
+    ...     print(f"{sim.alias}: {sim.uploaded_by}")
+    ...     print(f"Description: {sim.description[:80]}...")
 
     >>> # Search by code name (contains)
     >>> results = await query({'code.name': 'in:METIS'}, limit=10)
 
     >>> # Multiple constraints (AND logic)
     >>> results = await query({'machine': 'ITER', 'status': 'passed'})
-
-    >>> # Request specific metadata fields
-    >>> results = await query(
-    ...     {'machine': 'ITER'},
-    ...     include_metadata=['uploaded_by', 'code.name', 'description']
-    ... )
-
-    >>> # Batch queries with persistent connection
-    >>> from nucleai.simdb import SimDBClient
-    >>> async with SimDBClient() as client:
-    ...     iter_sims = await client.query({'machine': 'ITER'}, limit=100)
-    ...     jet_sims = await client.query({'machine': 'JET'}, limit=100)
 """
 
 import os
@@ -259,10 +247,11 @@ class SimDBClient:
                 Operators: 'eq:', 'in:', 'gt:', 'ge:', 'lt:', 'le:'
                 Example: {'machine': 'ITER', 'code.name': 'in:METIS'}
             limit: Maximum number of results to return
-            include_metadata: Additional metadata fields to include as query parameters.
-                Common fields: 'uploaded_by', 'code.name', 'code.version',
-                'status', 'description'.
-                Example: ['uploaded_by', 'code.name', 'code.version']
+            include_metadata: Metadata fields to include. If None, basic fields returned.
+                If provided, only requested fields are fetched.
+                Common fields: 'uploaded_by', 'description', 'code.name', 'code.version',
+                'ids_properties.comment', 'ids_properties.provider'
+                Example: ['uploaded_by', 'description', 'ids_properties.provider']
 
         Returns:
             List of Simulation objects parsed from JSON response
@@ -285,10 +274,10 @@ class SimDBClient:
             ...     'status': 'passed'
             ... }, limit=10)
             >>>
-            >>> # Request specific metadata fields
+            >>> # Request additional metadata fields
             >>> results = await client.query(
             ...     {'machine': 'ITER'},
-            ...     include_metadata=['uploaded_by', 'description']
+            ...     include_metadata=['uploaded_by', 'description', 'ids_properties.provider']
             ... )
         """
         # Build query parameters from constraints
@@ -394,22 +383,21 @@ class SimDBClient:
 async def query(
     constraints: dict[str, str],
     limit: int = 10,
-    include_metadata: list[str] | None = None,
 ) -> list[Simulation]:
     """Query SimDB for simulations matching constraints.
 
-    Convenience function that creates a SimDBClient and executes query.
+    Automatically fetches metadata for all results:
+    - description: Detailed simulation description with scenario parameters
+    - uploaded_by: Author email(s)
+    - datetime: Upload timestamp
+    - ids_properties: IDS file metadata (creation_date, version, homogeneous_time)
 
     Args:
         constraints: Field-value pairs to filter by
         limit: Maximum number of results
-        include_metadata: List of metadata fields to include in results.
-            IMPORTANT: Fields like uploaded_by, code.name, status, description
-            are only available if explicitly requested here. Default query
-            returns only alias and machine.
 
     Returns:
-        List of Simulation objects matching constraints
+        List of Simulation objects with metadata populated
 
     Raises:
         AuthenticationError: If credentials are invalid
@@ -418,22 +406,32 @@ async def query(
     Examples:
         >>> from nucleai.simdb import query
 
-        >>> # Basic query (only alias and machine)
+        >>> # Query simulations (metadata auto-fetched)
         >>> results = await query({'machine': 'ITER'}, limit=5)
         >>> for sim in results:
-        ...     print(sim.alias)
-
-        >>> # Query with metadata (including author emails)
-        >>> results = await query(
-        ...     {'machine': 'ITER', 'code.name': 'in:JINTRAC'},
-        ...     limit=10,
-        ...     include_metadata=['uploaded_by', 'code.name', 'code.version']
-        ... )
-        >>> for sim in results:
         ...     print(f"{sim.alias}: {sim.uploaded_by}")
+        ...     print(f"Description: {sim.description[:100]}...")
+
+        >>> # Search by code
+        >>> results = await query({'code.name': 'in:METIS'}, limit=10)
+        >>> for sim in results:
+        ...     print(f"{sim.alias}: {sim.code.name}")
+
+        >>> # Multiple constraints (AND logic)
+        >>> results = await query({'machine': 'ITER', 'status': 'passed'})
     """
+    # Always fetch important metadata fields
+    metadata_fields = [
+        "description",
+        "uploaded_by",
+        "datetime",
+        "ids_properties.creation_date",
+        "ids_properties.version_put.data_dictionary",
+        "ids_properties.homogeneous_time",
+    ]
+
     client = SimDBClient()
-    return await client.query(constraints, limit, include_metadata)
+    return await client.query(constraints, limit, metadata_fields)
 
 
 async def get_simulation(simulation_id: str) -> Simulation:
@@ -497,70 +495,42 @@ async def list_simulations(limit: int = 10) -> list[Simulation]:
 
 
 async def discover_available_fields() -> list[dict[str, str]]:
-    """Discover all 611 metadata fields available from SimDB REST API.
+    """Discover all available fields from SimDB REST API.
 
-    CRITICAL for AI agents: Use this function to discover what metadata you can
-    request. The API provides 611 fields across 18 categories including plasma
-    parameters, heating data, composition, and more.
+    Most fields are ndarray time series - use IDS download for those.
+    Query functions automatically fetch important metadata fields.
 
-    Returns a list of field metadata dictionaries with 'name' and 'type' keys.
-    These field names can be used in the include_metadata parameter of query().
+    Field Categories:
+        - ndarray: Time series data (use IDS download)
+        - str: Text fields (descriptions, annotations)
+        - float: Scalar physics parameters
+        - int: Integer counts and flags
 
     Returns:
         List of dicts with keys:
             - 'name': Field path (e.g., 'global_quantities.ip.value')
-            - 'type': Data type ('str', 'int', 'float', 'ndarray', etc.)
+            - 'type': Data type ('str', 'int', 'float', 'ndarray')
 
-    Field Categories (top 10 by count):
-        - local: 288 fields (local plasma parameters)
-        - heating_current_drive: 64 fields (heating & current drive)
-        - global_quantities: 56 fields (Ip, beta, b0, etc.)
-        - code: 27 fields (code metadata)
-        - fusion: 27 fields (fusion reactions)
-        - composition: 17 fields (D, T, He, impurities)
-        - boundary: 23 fields (plasma boundary)
-        - volume_average: 20 fields (volume-averaged quantities)
-        - line_average: 18 fields (line-averaged quantities)
-        - scrape_off_layer: 15 fields (SOL parameters)
-
-    Commonly Used Fields:
-        - machine, code.name, code.version, status, uploaded_by
-        - global_quantities.ip.value (plasma current time trace)
-        - global_quantities.b0.value (magnetic field)
-        - composition.deuterium.value, composition.helium.value
-        - heating_current_drive.ec[0].power.value
-        - simulation.time_begin, simulation.time_end
-        - ids (list of available IDS types like 'equilibrium', 'core_profiles')
-
-    Note: These fields reflect IDS (IMAS Data Structure) schema. Not all
-    fields have data for all simulations. Use include_metadata with specific
-    field names to request them in query().
+    Usage:
+        This function is useful for exploring the API schema.
+        Standard queries automatically include reliable metadata.
 
     Examples:
         >>> from nucleai.simdb import discover_available_fields
         >>>
-        >>> # Get all available fields
-        >>> fields = await discover_available_fields()
-        >>> print(f"Total fields: {len(fields)}")  # 611
+        >>> # Discover all available fields
+        >>> all_fields = await discover_available_fields()
+        >>> print(f"Total fields: {len(all_fields)}")  # 611
         >>>
-        >>> # Find plasma current field
-        >>> ip_fields = [f for f in fields if 'ip' in f['name'].lower()]
-        >>> print(ip_fields[0]['name'])  # 'global_quantities.ip.value'
+        >>> # Filter by type
+        >>> from collections import Counter
+        >>> type_counts = Counter(f['type'] for f in all_fields)
+        >>> print(type_counts)  # {'ndarray': 377, 'str': 184, 'float': 43, 'int': 7}
         >>>
-        >>> # Group by category
-        >>> from collections import defaultdict
-        >>> categories = defaultdict(list)
-        >>> for field in fields:
-        ...     category = field['name'].split('.')[0]
-        ...     categories[category].append(field)
-        >>> print(f"Categories: {list(categories.keys())}")
-        >>>
-        >>> # Request specific fields in a query
-        >>> from nucleai.simdb import query
-        >>> results = await query(
-        ...     {'machine': 'ITER'},
-        ...     include_metadata=['global_quantities.ip.value', 'composition.deuterium.value']
-        ... )
+        >>> # Find composition fields
+        >>> comp_fields = [f for f in all_fields if 'composition' in f['name']]
+        >>> for field in comp_fields[:5]:
+        ...     print(f"{field['name']}: {field['type']}")
     """
     settings = get_settings()
     client = SimDBClient()
@@ -593,13 +563,9 @@ async def discover_available_fields() -> list[dict[str, str]]:
             response = await http_client.get("metadata")
             response.raise_for_status()
 
-            data = response.json()
-            # Assuming metadata endpoint returns {"fields": [{"name": "...", "description": "..."}, ...]}
-            if "fields" in data:
-                return {field["name"]: field.get("description", "") for field in data["fields"]}
-            # Alternative format: direct field->description mapping
-            return data
+            # API returns list of {name, type} dicts
+            return response.json()
 
     except Exception:
-        # If metadata endpoint doesn't exist or fails, return empty dict
-        return {}
+        # If metadata endpoint doesn't exist or fails, return empty list
+        return []

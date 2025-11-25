@@ -1,8 +1,8 @@
 """ITER SimDB integration module.
 
 This module provides async Python interfaces to ITER's SimDB REST API for
-querying and retrieving fusion simulation data. Authentication uses environment
-variables to support non-interactive agent workflows.
+querying and retrieving fusion simulation data. All queries automatically
+include reliable metadata fields validated against the database.
 
 REST API Access:
     Direct HTTP access via httpx to SimDB REST API at:
@@ -17,13 +17,14 @@ Modules:
     auth: Credential management and authentication
 
 Data Models:
-    nucleai.core.models.Simulation: Unified model for all simulation metadata
-    - Uses model_config(extra="allow") for unknown API fields
-    - Parse JSON via from_api_response() classmethod
+    nucleai.core.models.Simulation: Simulation with metadata
+    - Core fields always present: uuid, alias, machine, code, status, description
+    - Metadata fields auto-fetched: uploaded_by, datetime, ids_properties
+    - Access via sim.uploaded_by and sim.metadata.ids_properties
 
-    Discover available fields:
+    Discover model structure:
     >>> from nucleai.core.models import Simulation
-    >>> print(Simulation.model_json_schema()['properties'].keys())
+    >>> print(Simulation.model_json_schema())
 
 Environment Variables:
     SIMDB_USERNAME: ITER username
@@ -36,21 +37,16 @@ Query Operators:
     gt:, ge:, lt:, le: - Numeric comparisons
     agt:, age:, alt:, ale: - Array element comparisons
 
-Metadata Extraction:
-    Use include_metadata parameter to request fields beyond basic ones.
+Metadata:
+    All queries automatically fetch reliable metadata:
+    - uploaded_by: Author email(s) - populated for most codes except SOLPS
+    - datetime: Upload timestamp - always populated
+    - ids_properties.creation_date: IDS file creation date
+    - ids_properties.version_put.data_dictionary: IDS schema version
+    - ids_properties.homogeneous_time: Time grid structure
 
-    Available metadata fields:
-    - 'uploaded_by': Author email addresses (comma-separated if multiple)
-    - 'code.name', 'code.version': Code identification (version may be N/A)
-    - 'status', 'description': Simulation metadata
-    - Physics quantities: See discover_available_fields() for full list
-
-    NOTE: Metadata must be explicitly requested via include_metadata parameter.
-    Default query returns only: alias, machine, datetime, uuid
-
-    Discover all available fields:
-    >>> fields = await nucleai.simdb.discover_available_fields()
-    >>> print(list(fields.keys()))
+    For additional data (physics parameters, time series):
+    Use IDS file download with simulation UUID (coming soon)
 
 HTTP Status Codes:
     - 200: Success
@@ -65,25 +61,20 @@ Examples:
     >>> # Read full documentation
     >>> print(get_docstring(nucleai.simdb))
 
-    >>> # Basic query (minimal metadata)
+    >>> # Query simulations (metadata auto-fetched)
     >>> results = await nucleai.simdb.query({'machine': 'ITER'}, limit=5)
     >>> for sim in results:
-    ...     print(sim.alias)
-
-    >>> # Query with metadata (includes author emails)
-    >>> results = await nucleai.simdb.query(
-    ...     {'machine': 'ITER', 'code.name': 'in:JINTRAC'},
-    ...     limit=10,
-    ...     include_metadata=['uploaded_by', 'code.name', 'code.version']
-    ... )
-    >>> for sim in results:
     ...     print(f"{sim.alias}: {sim.uploaded_by}")
+    ...     print(f"  IDS version: {sim.metadata.ids_properties.version_put_data_dictionary}")
 
-    >>> # Query by code with operator
+    >>> # Search by code
+    >>> results = await nucleai.simdb.query({'code.name': 'in:METIS'}, limit=10)
+    >>> for sim in results:
+    ...     print(f"{sim.alias}: {sim.code.name} v{sim.code.version}")
+
+    >>> # Multiple constraints (AND logic)
     >>> results = await nucleai.simdb.query(
-    ...     {'machine': 'ITER', 'code.name': 'eq:ASTRA'},
-    ...     limit=5,
-    ...     include_metadata=['code.name']
+    ...     {'machine': 'ITER', 'status': 'passed'}
     ... )
 
     >>> # Batch queries with persistent connection
@@ -91,16 +82,11 @@ Examples:
     ...     iter_sims = await client.query({'machine': 'ITER'}, limit=100)
     ...     jet_sims = await client.query({'machine': 'JET'}, limit=100)
 
-    >>> # Count simulations by code
-    >>> from collections import Counter
-    >>> results = await nucleai.simdb.query(
-    ...     {'machine': 'ITER'},
-    ...     limit=5000,
-    ...     include_metadata=['code.name']
-    ... )
-    >>> code_counts = Counter(sim.code.name for sim in results if sim.code)
-    >>> for code, count in code_counts.most_common(5):
-    ...     print(f"{code}: {count}")
+    >>> # Access IDS types for further data retrieval
+    >>> sim = results[0]
+    >>> print(f"Available IDS types: {sim.ids}")
+    >>> # TODO: Download IDS file with UUID for physics data
+    >>> # ids_data = await download_ids_file(sim.uuid, 'core_profiles')
 """
 
 from nucleai.simdb.client import (

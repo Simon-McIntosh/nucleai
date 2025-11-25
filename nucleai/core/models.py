@@ -6,7 +6,7 @@ formats through `help()` and `.model_json_schema()`.
 
 Classes:
     CodeInfo: Simulation code metadata
-    Simulation: ITER SimDB simulation metadata (basic from query, extended from info)
+    Simulation: ITER SimDB simulation metadata with structured metadata
     QueryConstraint: SimDB query constraint with operator
     SearchResult: Search result with similarity score
     FeatureMetadata: Feature extraction metadata
@@ -26,7 +26,7 @@ Examples:
     ...     status="passed"
     ... )
     >>>
-    >>> # Extended simulation from info (optional fields populated)
+    >>> # Extended simulation with metadata
     >>> detail = Simulation(
     ...     uuid="123...",
     ...     alias="ITER-001",
@@ -35,13 +35,17 @@ Examples:
     ...     description="Baseline",
     ...     status="passed",
     ...     uploaded_by="user@iter.org",
-    ...     global_quantities={"ip": -15e6, "beta_tor_norm": 0.26}
+    ...     metadata=SimulationMetadata(
+    ...         composition=CompositionMetadata(deuterium=0.00934)
+    ...     )
     ... )
 """
 
 from typing import Literal
 
 import pydantic
+
+from nucleai.core.metadata import SimulationMetadata
 
 
 class CodeInfo(pydantic.BaseModel):
@@ -64,62 +68,59 @@ class CodeInfo(pydantic.BaseModel):
 
 
 class Simulation(pydantic.BaseModel):
-    """ITER SimDB simulation metadata.
+    """ITER SimDB simulation metadata with structured metadata.
 
     Single model for both query results and detailed info. Basic fields
     (uuid, alias, machine, code, description, status) always present.
-    Extended fields (uploaded_by, physics quantities) optional, populated
-    from REST API /simulation/<id> endpoint.
+    Extended fields (uploaded_by, metadata) optional, populated when
+    requested via include_metadata parameter.
 
     Attributes:
         uuid: Unique simulation identifier (UUID format)
-        alias: Human-readable alias (e.g., "ITER-001" or "username/code/machine/...")
+        alias: Human-readable alias (e.g., "ITER-001" or "100001/2")
         machine: Machine name (e.g., "ITER")
         code: Simulation code information
         description: Detailed simulation description
         status: Validation status (passed, failed, pending)
-        uploaded_by: Email address(es) of uploader (from API)
-        ids: Available IDS types (from API, e.g., ['core_profiles', 'equilibrium'])
-        time_begin: Simulation start time (from API)
-        time_end: Simulation end time (from API)
-        time_step: Time step size (from API)
-        creation_date: IDS creation timestamp (from API)
-        global_quantities: Physics quantities like ip, energy, beta (from API)
-        composition: Plasma composition fractions (from API)
-        heating: Heating and current drive powers (from API)
+        uploaded_by: Email address(es) of uploader (must request via include_metadata)
+        ids: Available IDS types (e.g., ['core_profiles', 'equilibrium'])
+        metadata: Structured metadata (composition, ids_properties, etc.)
 
     Examples:
         >>> from nucleai.core.models import CodeInfo, Simulation
-        >>> # Basic from query
+        >>> from nucleai.core.metadata import SimulationMetadata, CompositionMetadata
+        >>>
+        >>> # Basic from query (always present fields)
         >>> sim = Simulation(
         ...     uuid="123e4567-e89b-12d3-a456-426614174000",
-        ...     alias="ITER-001",
+        ...     alias="100001/2",
         ...     machine="ITER",
-        ...     code=CodeInfo(name="METIS", version="1.0.0"),
+        ...     code=CodeInfo(name="METIS", version="6.1894"),
         ...     description="Baseline ITER scenario",
         ...     status="passed"
         ... )
         >>>
-        >>> # Extended from API response
+        >>> # With metadata (when requested)
         >>> detail = Simulation(
         ...     uuid="123...",
-        ...     alias="ITER-001",
+        ...     alias="100001/2",
         ...     machine="ITER",
-        ...     code=CodeInfo(name="METIS", version="1.0"),
+        ...     code=CodeInfo(name="METIS", version="6.1894"),
         ...     description="Baseline",
         ...     status="passed",
         ...     uploaded_by="user@iter.org",
-        ...     global_quantities={"ip": -15e6, "beta_tor_norm": 0.26}
+        ...     metadata=SimulationMetadata(
+        ...         composition=CompositionMetadata(deuterium=0.00934, helium_4=0.02),
+        ...         datetime="2025-08-11T13:46:25.682813"
+        ...     )
         ... )
-        >>> print(detail.global_quantities["ip"])
-        -15000000.0
+        >>> print(detail.metadata.composition.deuterium)  # Type-safe access!
+        0.00934
         >>>
         >>> # Parse from REST API JSON
-        >>> api_data = {"uuid": "123", "alias": "ITER-001", ...}
+        >>> api_data = {"uuid": "123", "alias": "100001/2", "metadata": [...]}
         >>> sim = Simulation.from_api_response(api_data)
     """
-
-    model_config = pydantic.ConfigDict(extra="allow")
 
     uuid: str
     alias: str
@@ -129,13 +130,7 @@ class Simulation(pydantic.BaseModel):
     status: Literal["passed", "failed", "pending"]
     uploaded_by: str | None = None
     ids: list[str] | None = None
-    time_begin: float | None = None
-    time_end: float | None = None
-    time_step: float | None = None
-    creation_date: str | None = None
-    global_quantities: dict[str, float | list[float]] = pydantic.Field(default_factory=dict)
-    composition: dict[str, float] = pydantic.Field(default_factory=dict)
-    heating: dict[str, float] = pydantic.Field(default_factory=dict)
+    metadata: SimulationMetadata | None = None
 
     @pydantic.field_validator("ids", mode="before")
     @classmethod
@@ -174,7 +169,7 @@ class Simulation(pydantic.BaseModel):
         API format:
             {"uuid": {...}, "alias": "...", "metadata": [{"element": "field", "value": "val"}, ...]}
 
-        Transforms to flat structure with metadata fields unpacked.
+        Transforms to flat structure with metadata fields unpacked and structured.
         """
         if not isinstance(data, dict):
             return data
@@ -187,7 +182,7 @@ class Simulation(pydantic.BaseModel):
         transformed = {}
 
         # Copy non-metadata fields
-        for key in ["uuid", "alias", "datetime"]:
+        for key in ["uuid", "alias"]:
             if key in data:
                 transformed[key] = data[key]
 
@@ -199,6 +194,10 @@ class Simulation(pydantic.BaseModel):
             if element and value is not None:
                 metadata_dict[element] = value
 
+        # Copy datetime from top level if present
+        if "datetime" in data:
+            metadata_dict["datetime"] = data["datetime"]
+
         # Map well-known fields to model attributes
         if "machine" in metadata_dict:
             transformed["machine"] = metadata_dict["machine"]
@@ -208,45 +207,15 @@ class Simulation(pydantic.BaseModel):
             code_info = {"name": metadata_dict["code.name"]}
             if "code.version" in metadata_dict:
                 code_info["version"] = metadata_dict["code.version"]
-            if "code.commit" in metadata_dict:
-                code_info["commit"] = metadata_dict["code.commit"]
-            if "code.repository" in metadata_dict:
-                code_info["repository"] = metadata_dict["code.repository"]
             transformed["code"] = code_info
 
         # Map simple optional fields
-        for field in [
-            "status",
-            "description",
-            "uploaded_by",
-            "ids",
-            "time_begin",
-            "time_end",
-            "time_step",
-            "creation_date",
-        ]:
+        for field in ["status", "description", "uploaded_by", "ids"]:
             if field in metadata_dict:
                 transformed[field] = metadata_dict[field]
 
-        # Store remaining metadata as extra fields (available via model_extra)
-        excluded_keys = {
-            "machine",
-            "code.name",
-            "code.version",
-            "code.commit",
-            "code.repository",
-            "status",
-            "description",
-            "uploaded_by",
-            "ids",
-            "time_begin",
-            "time_end",
-            "time_step",
-            "creation_date",
-        }
-        for key, value in metadata_dict.items():
-            if key not in excluded_keys:
-                transformed[key] = value
+        # Parse structured metadata
+        transformed["metadata"] = SimulationMetadata.from_metadata_dict(metadata_dict)
 
         # Set defaults for required fields if missing
         if "machine" not in transformed:
