@@ -63,7 +63,7 @@ def get_docstring(obj: Any) -> str:
         True
 
         >>> # Works with classes too
-        >>> from nucleai.core.models import Simulation
+        >>> from nucleai.simdb.models import Simulation
         >>> doc = get_docstring(Simulation)
         >>> 'simulation' in doc.lower()
         True
@@ -155,7 +155,7 @@ def get_model_schema(model: type[pydantic.BaseModel]) -> dict[str, Any]:
         JSON schema dictionary
 
     Examples:
-        >>> from nucleai.core.models import Simulation
+        >>> from nucleai.simdb.models import Simulation
         >>> schema = get_model_schema(Simulation)
         >>> print(schema['title'])
         Simulation

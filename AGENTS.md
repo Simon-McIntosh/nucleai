@@ -355,7 +355,7 @@ functions = list_module_functions(nucleai.simdb)
 All data models are Pydantic with JSON schema:
 
 ```python
-from nucleai.core.models import Simulation
+from nucleai.simdb.models import Simulation
 
 # Get JSON schema
 schema = Simulation.model_json_schema()
@@ -433,7 +433,7 @@ results = await nucleai.simdb.query(
 )
 
 # 5. Work with results (schema is documented)
-from nucleai.core.models import Simulation
+from nucleai.simdb.models import Simulation
 print(get_docstring(Simulation))  # Understand the data structure
 
 for sim in results:
@@ -476,7 +476,7 @@ sig = get_function_signature(nucleai.simdb.query)
 assert 'constraints' in sig['parameters']
 
 # Test 3: Can you understand data schemas?
-from nucleai.core.models import Simulation
+from nucleai.simdb.models import Simulation
 schema = Simulation.model_json_schema()
 assert 'uuid' in schema['properties']
 ```

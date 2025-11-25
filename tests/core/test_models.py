@@ -3,7 +3,8 @@
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from nucleai.core.models import CodeInfo, QueryConstraint, SearchResult, Simulation
+from nucleai.core.models import SearchResult
+from nucleai.simdb.models import CodeInfo, QueryConstraint, Simulation
 
 
 def test_code_info_creation():

@@ -1,6 +1,7 @@
 """Tests for core.introspect module."""
 
 import nucleai.core.models
+import nucleai.simdb.models
 from nucleai.core.config import get_settings
 from nucleai.core.introspect import (
     discover_capabilities,
@@ -9,7 +10,7 @@ from nucleai.core.introspect import (
     get_model_schema,
     list_module_functions,
 )
-from nucleai.core.models import Simulation
+from nucleai.simdb.models import Simulation
 
 
 def test_get_docstring():
@@ -64,12 +65,18 @@ def test_get_function_signature_with_parameters():
 
 def test_list_module_functions():
     """Test listing module functions."""
-    functions = list_module_functions(nucleai.core.models)
-    assert "CodeInfo" in functions
-    assert "Simulation" in functions
-    assert "QueryConstraint" in functions
+    # Test with core.models (generic models)
+    core_functions = list_module_functions(nucleai.core.models)
+    assert "SearchResult" in core_functions
+    assert "FeatureMetadata" in core_functions
     # Should not include private methods
-    assert not any(name.startswith("_") for name in functions)
+    assert not any(name.startswith("_") for name in core_functions)
+
+    # Test with simdb.models (SimDB-specific models)
+    simdb_functions = list_module_functions(nucleai.simdb.models)
+    assert "CodeInfo" in simdb_functions
+    assert "Simulation" in simdb_functions
+    assert "QueryConstraint" in simdb_functions
 
 
 def test_get_model_schema():

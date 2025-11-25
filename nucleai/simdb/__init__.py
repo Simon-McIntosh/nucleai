@@ -17,13 +17,13 @@ Modules:
     auth: Credential management and authentication
 
 Data Models:
-    nucleai.core.models.Simulation: Simulation with metadata
+    nucleai.simdb.models.Simulation: Simulation with metadata
     - Core fields always present: uuid, alias, machine, code, status, description
     - Metadata fields auto-fetched: uploaded_by, datetime, ids_properties
     - Access via sim.uploaded_by and sim.metadata.ids_properties
 
     Discover model structure:
-    >>> from nucleai.core.models import Simulation
+    >>> from nucleai.simdb.models import Simulation
     >>> print(Simulation.model_json_schema())
 
 Environment Variables:
@@ -96,6 +96,7 @@ from nucleai.simdb.client import (
     list_simulations,
     query,
 )
+from nucleai.simdb.models import CodeInfo, QueryConstraint, Simulation
 
 __all__ = [
     "SimDBClient",
@@ -103,4 +104,7 @@ __all__ = [
     "get_simulation",
     "list_simulations",
     "discover_available_fields",
+    "Simulation",
+    "CodeInfo",
+    "QueryConstraint",
 ]

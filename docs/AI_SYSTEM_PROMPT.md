@@ -50,7 +50,7 @@ results = await nucleai.simdb.query(
 
 ```python
 # Get schema for any Pydantic model
-from nucleai.core.models import Simulation
+from nucleai.simdb.models import Simulation
 schema = Simulation.model_json_schema()
 
 # Or use help
