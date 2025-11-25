@@ -30,6 +30,16 @@ python script.py                    # May use wrong Python
 source .venv/bin/activate && python # Unnecessary
 ```
 
+**Working Directory**: All terminal commands assume you're already in the project root (`/home/ITER/mcintos/Code/nucleai`). Do NOT prefix commands with `cd /home/ITER/mcintos/Code/nucleai &&` - it's redundant and clutters output.
+
+```bash
+# ✅ Correct - assume you're in project root
+uv run pytest
+
+# ❌ Wrong - unnecessary cd
+cd /home/ITER/mcintos/Code/nucleai && uv run pytest
+```
+
 ### Package Management
 - **Package manager**: `uv`
 - **Add dependencies**: `uv add <package>`
@@ -60,13 +70,15 @@ gh issue create --title "..." --body "..."          # Create issue
 gh repo view --web                                  # Open repo in browser
 ```
 
-**Git workflow**:
+**Git workflow** (assume you're in project root):
 ```bash
 git status                      # Check current state
 git add -A                      # Stage all changes
 git commit -m "message"         # Commit with message (triggers pre-commit)
 git push origin main            # Push to remote
 git pull origin main            # Pull latest changes
+
+# Note: Do NOT prefix with `cd /path/to/project &&` - you're already there
 ```
 
 ### Testing
