@@ -17,7 +17,7 @@ Classes:
     SimulationMetadata: Complete metadata container
 
 Examples:
-    >>> from nucleai.core.metadata import SimulationMetadata
+    >>> from nucleai.simdb import query
     >>> # Discover available fields
     >>> print(SimulationMetadata.model_json_schema())
     >>>
@@ -207,20 +207,20 @@ class SimulationMetadata(pydantic.BaseModel):
     Replaces the generic model_extra pattern with typed fields organized
     by category. All fields are optional - only populate what's available.
 
+    Access pattern: sim.metadata.datetime, sim.metadata.composition.deuterium, etc.
+
     Examples:
-        >>> metadata = SimulationMetadata(
-        ...     composition=CompositionMetadata(deuterium=0.00934),
-        ...     ids_properties=IDSPropertiesMetadata(
-        ...         creation_date="2021-05-04 09:25:46"
-        ...     ),
-        ...     global_quantities=GlobalQuantitiesMetadata(
-        ...         ip_source="equilibrium"
-        ...     )
-        ... )
-        >>> print(metadata.composition.deuterium)
-        0.00934
-        >>> print(metadata.ids_properties.creation_date)
-        2021-05-04 09:25:46
+        >>> from nucleai.simdb import query
+        >>>
+        >>> # Metadata auto-fetched by query
+        >>> results = await query({'machine': 'ITER'}, limit=1)
+        >>> sim = results[0]
+        >>>
+        >>> # Access metadata fields
+        >>> print(sim.metadata.datetime)  # Upload timestamp
+        >>> print(sim.metadata.ids_properties.creation_date)  # IDS creation
+        >>> if sim.metadata.composition:
+        ...     print(sim.metadata.composition.deuterium)
     """
 
     # Always present
