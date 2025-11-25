@@ -16,6 +16,7 @@ Functions:
 Metadata:
     Automatically fetched for all queries:
     - description: Detailed scenario description with parameters
+    - ids: List of available IDS types for data retrieval
     - uploaded_by: Author email(s)
     - datetime: Upload timestamp
     - ids_properties.creation_date: IDS file creation date
@@ -58,8 +59,8 @@ import httpx
 
 from nucleai.core.config import get_settings
 from nucleai.core.exceptions import AuthenticationError, ConnectionError
-from nucleai.core.models import Simulation
 from nucleai.simdb.auth import get_credentials
+from nucleai.simdb.models import Simulation
 
 
 class SimDBClient:
@@ -423,6 +424,7 @@ async def query(
     # Always fetch important metadata fields
     metadata_fields = [
         "description",
+        "ids",
         "uploaded_by",
         "datetime",
         "ids_properties.creation_date",
@@ -495,42 +497,34 @@ async def list_simulations(limit: int = 10) -> list[Simulation]:
 
 
 async def discover_available_fields() -> list[dict[str, str]]:
-    """Discover all available fields from SimDB REST API.
+    """Discover all available metadata fields from SimDB REST API.
+
+    Returns list of dicts with 'name' (field path) and 'type' (data type).
+    Use for exploring what fields are queryable via constraints parameter.
 
     Most fields are ndarray time series - use IDS download for those.
     Query functions automatically fetch important metadata fields.
-
-    Field Categories:
-        - ndarray: Time series data (use IDS download)
-        - str: Text fields (descriptions, annotations)
-        - float: Scalar physics parameters
-        - int: Integer counts and flags
 
     Returns:
         List of dicts with keys:
             - 'name': Field path (e.g., 'global_quantities.ip.value')
             - 'type': Data type ('str', 'int', 'float', 'ndarray')
 
-    Usage:
-        This function is useful for exploring the API schema.
-        Standard queries automatically include reliable metadata.
-
     Examples:
         >>> from nucleai.simdb import discover_available_fields
         >>>
-        >>> # Discover all available fields
+        >>> # Returns list of dicts, not strings
         >>> all_fields = await discover_available_fields()
-        >>> print(f"Total fields: {len(all_fields)}")  # 611
+        >>> print(all_fields[0])  # {'name': 'machine', 'type': 'str'}
+        >>>
+        >>> # Access field names
+        >>> field_names = [f['name'] for f in all_fields]
+        >>> print('machine' in field_names)  # True
         >>>
         >>> # Filter by type
         >>> from collections import Counter
         >>> type_counts = Counter(f['type'] for f in all_fields)
-        >>> print(type_counts)  # {'ndarray': 377, 'str': 184, 'float': 43, 'int': 7}
-        >>>
-        >>> # Find composition fields
-        >>> comp_fields = [f for f in all_fields if 'composition' in f['name']]
-        >>> for field in comp_fields[:5]:
-        ...     print(f"{field['name']}: {field['type']}")
+        >>> print(type_counts)  # {'ndarray': 377, 'str': 184, ...}
     """
     settings = get_settings()
     client = SimDBClient()
