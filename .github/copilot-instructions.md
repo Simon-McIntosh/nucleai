@@ -1,50 +1,54 @@
 # GitHub Copilot Instructions for nucleai
 
-## Core Principle
+## Codegen-First Approach
 
-This library uses runtime introspection. Use `get_docstring()` for non-interactive documentation access.
+This library is designed for runtime introspection. Always prefer executing code over reading source files.
 
-## Quick Start
+### Core Principle
+
+Run code to discover what you need, then execute it. Don't read files to understand APIs.
+
+### Workflow
+
+1. Use `get_docstring()` to read documentation
+2. Use `model_json_schema()` to discover data structures
+3. Copy examples from docstrings
+4. Execute code to test
+
+### When to Read Files
+
+Read source files ONLY when:
+- Implementing new features
+- Modifying existing code
+- Debugging implementation details
+
+Never read files for:
+- API documentation
+- Configuration requirements  
+- Usage examples
+- Understanding function behavior
+
+## Introspection API
 
 ```python
-from nucleai.core.introspect import get_docstring, get_function_signature
+from nucleai.core.introspect import (
+    get_docstring,           # Read any docstring
+    get_function_signature,  # Get parameter types
+    list_module_functions,   # List module contents
+    discover_capabilities    # List all modules
+)
 
-# Discover capabilities
-import nucleai
-print(get_docstring(nucleai))
-
-# Explore a module
-import nucleai.simdb
-print(get_docstring(nucleai.simdb.query))  # See examples and parameters
-
-# Get detailed signatures
-sig = get_function_signature(nucleai.simdb.query)
-print(sig['docstring'])  # Full docstring
-print(sig['parameters'])  # Parameter types
+# For Pydantic models
+Model.model_json_schema()  # Get schema with all fields
 ```
 
 ## Development Standards
 
 - Use `uv run` for all Python commands
-- Python 3.13 with modern syntax (`list[str]` not `List[str]`)
-- Async with `anyio`, not asyncio
-- Pydantic for schemas
+- Python 3.13+ syntax
+- Async with `anyio`
+- Pydantic for data models
 - Test coverage target: 100%
-
-## Configuration
-
-Settings are loaded from `.env`:
-```python
-from nucleai.core.introspect import get_docstring
-from nucleai.core.config import Settings, get_settings
-
-# See documentation
-print(get_docstring(get_settings))
-
-# See all required environment variables
-schema = Settings.model_json_schema()
-print(f"Required fields: {schema['required']}")
-```
 
 ## Complete Documentation
 
