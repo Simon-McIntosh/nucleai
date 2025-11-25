@@ -1,20 +1,19 @@
 """SimDB client for querying ITER simulation database.
 
-Provides async Python interface to SimDB CLI commands. Wraps CLI calls
-in subprocess execution with credential management for non-interactive use.
+Provides async Python interface to SimDB REST API. Uses httpx for HTTP
+requests with authentication and connection pooling.
 
 Classes:
-    SimDBClient: Async client for SimDB operations
+    SimDBClient: Async client for SimDB REST API operations
 
 Functions:
     query: Query simulations with constraints
     get_simulation: Get detailed simulation info by ID
     list_simulations: List recent simulations
+    discover_available_fields: Get available metadata fields from API
 
 Metadata Fields:
-    Default fields: alias, machine
-
-    Request additional with include_metadata parameter:
+    Request with include_metadata parameter:
     - 'code.name', 'code.version', 'code.commit', 'code.repository'
     - 'uploaded_by': Email address(es) of uploader (comma-separated)
     - 'status': 'passed', 'pending', 'failed'
@@ -25,14 +24,13 @@ Metadata Fields:
     - Physics quantities: 'global_quantities.ip.value', 'heating_current_drive.*'
     - 'composition.*', 'fusion.*', 'local.*', 'volume_average.*'
 
-    Note: Most physics fields empty in query output. Use 'simdb remote info <id>'
-    for full metadata. Explore schema: 'simdb remote schema --depth 3'
+    Use discover_available_fields() to query current API schema dynamically.
 
-Author Extraction:
-    Many simulations lack user metadata fields. Extract from alias instead:
-    - Named format: 'username/code/machine/...' -> extract 'username'
-    - Numeric format: '104001/11' -> no author available
-    Use split('/')[0] and check if isdigit() to distinguish formats.
+HTTP Error Codes:
+    - 401 Unauthorized: Invalid credentials (check SIMDB_USERNAME/PASSWORD)
+    - 404 Not Found: Simulation ID not found
+    - 500 Internal Server Error: SimDB server error
+    - 503 Service Unavailable: SimDB server down
 
 Examples:
     >>> from nucleai.simdb import query
@@ -49,52 +47,203 @@ Examples:
     >>> # Multiple constraints (AND logic)
     >>> results = await query({'machine': 'ITER', 'status': 'passed'})
 
-    >>> # Request metadata fields (note: may be empty)
+    >>> # Request specific metadata fields
     >>> results = await query(
     ...     {'machine': 'ITER'},
-    ...     include_metadata=['code.name', 'code.version', 'user']
+    ...     include_metadata=['uploaded_by', 'code.name', 'description']
     ... )
 
-    >>> # Extract author from alias when metadata unavailable
-    >>> import anyio
-    >>> cmd = ['uv', 'run', 'simdb', 'remote', 'query',
-    ...        'machine=ITER', 'code.name=in:JINTRAC',
-    ...        '-m', 'code.name', '--limit', '100']
-    >>> result = await anyio.run_process(cmd, check=True)
-    >>> output = result.stdout.decode()
-    >>> # Parse table and extract username from alias field:
-    >>> # if alias contains '/', split and check if first part isdigit()
+    >>> # Batch queries with persistent connection
+    >>> from nucleai.simdb import SimDBClient
+    >>> async with SimDBClient() as client:
+    ...     iter_sims = await client.query({'machine': 'ITER'}, limit=100)
+    ...     jet_sims = await client.query({'machine': 'JET'}, limit=100)
 """
 
+import os
+import pickle
+from pathlib import Path
+from urllib.parse import urlparse
+
 import anyio
+import httpx
 
 from nucleai.core.config import get_settings
-from nucleai.core.exceptions import ConnectionError
+from nucleai.core.exceptions import AuthenticationError, ConnectionError
 from nucleai.core.models import Simulation
 from nucleai.simdb.auth import get_credentials
-from nucleai.simdb.parser import parse_query_output
 
 
 class SimDBClient:
-    """Async client for ITER SimDB operations.
+    """Async client for ITER SimDB REST API operations.
 
-    Wraps SimDB CLI commands in async subprocess execution. Handles
-    authentication via environment variables.
+    Provides HTTP-based access to SimDB with authentication and connection
+    pooling. Supports context manager for persistent connections across
+    multiple queries.
 
     Attributes:
         settings: Application settings with SimDB configuration
+        _client: Optional persistent httpx.AsyncClient (when used as context manager)
 
     Examples:
         >>> from nucleai.simdb import SimDBClient
+        >>>
+        >>> # One-off query (ephemeral client)
         >>> client = SimDBClient()
         >>> results = await client.query({'machine': 'ITER'}, limit=5)
         >>> print(len(results))
         5
+        >>>
+        >>> # Batch queries (persistent connection)
+        >>> async with SimDBClient() as client:
+        ...     iter_sims = await client.query({'machine': 'ITER'}, limit=100)
+        ...     jet_sims = await client.query({'machine': 'JET'}, limit=100)
     """
 
     def __init__(self) -> None:
         """Initialize SimDB client with configuration."""
         self.settings = get_settings()
+        self._client: httpx.AsyncClient | None = None
+        self._api_version: str | None = None
+        self._cookies: httpx.Cookies | None = None
+
+    async def __aenter__(self) -> "SimDBClient":
+        """Context manager entry - create persistent HTTP client."""
+        # Authenticate and get cookies
+        self._cookies = await self._get_cookies()
+
+        # Detect API version
+        self._api_version = await self._detect_api_version()
+
+        self._client = httpx.AsyncClient(
+            base_url=f"{self.settings.simdb_remote_url}/{self._api_version}/",
+            cookies=self._cookies,
+            headers={"User-Agent": "it_script_basic"},
+            timeout=30.0,
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+        )
+        return self
+
+    async def __aexit__(self, *args) -> None:
+        """Context manager exit - close HTTP client."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+
+    async def _get_cookies(self) -> httpx.Cookies:
+        """Get authentication cookies via F5 firewall.
+
+        Loads cached cookies from ~/.config/simdb/iter-cookies.pkl if valid,
+        otherwise authenticates via /my.policy endpoint and caches cookies.
+
+        Returns:
+            httpx.Cookies object with authentication cookies
+
+        Raises:
+            AuthenticationError: If authentication fails
+        """
+        # Cookie cache path
+        config_dir = Path.home() / ".config" / "simdb"
+        cookies_file = config_dir / "iter-cookies.pkl"
+
+        # Try loading cached cookies
+        if cookies_file.exists():
+            try:
+                async with await anyio.open_file(cookies_file, "rb") as f:
+                    cached_cookie_dict = pickle.loads(await f.read())
+
+                # Convert dict to httpx.Cookies
+                cookie_jar = httpx.Cookies(cached_cookie_dict)
+
+                # Validate cookies with test request
+                async with httpx.AsyncClient(
+                    base_url=self.settings.simdb_remote_url,
+                    cookies=cookie_jar,
+                    headers={"User-Agent": "it_script_basic"},
+                    timeout=30.0,
+                ) as client:
+                    response = await client.get("/")
+                    try:
+                        response.json()  # Valid cookies should return JSON
+                        return cookie_jar  # Cookies are valid!
+                    except Exception:
+                        pass  # Cookies invalid, continue to re-auth
+
+            except Exception:
+                pass  # Failed to load/validate, continue to re-auth
+
+        # Cookies missing or invalid - authenticate via F5 firewall
+        username, password = get_credentials()
+        parsed_url = urlparse(self.settings.simdb_remote_url)
+        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+
+        try:
+            async with httpx.AsyncClient(
+                headers={"User-Agent": "it_script_basic"},
+                timeout=30.0,
+                follow_redirects=True,
+            ) as client:
+                response = await client.post(
+                    f"{base_url}/my.policy",
+                    auth=(username, password),
+                )
+
+                if response.status_code != 200:
+                    raise AuthenticationError(
+                        "Failed to authenticate with F5 firewall",
+                        recovery_hint="Check SIMDB_USERNAME and SIMDB_PASSWORD in .env",
+                    )
+
+                # Extract cookies for caching (httpx cookies aren't directly picklable)
+                # Simplified: just store name-value pairs
+                cookie_dict = dict(response.cookies)
+
+                # Cache cookies
+                config_dir.mkdir(parents=True, exist_ok=True)
+                os.umask(0)
+                descriptor = os.open(
+                    path=cookies_file,
+                    flags=os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                    mode=0o600,
+                )
+                async with await anyio.open_file(descriptor, "wb") as f:
+                    await f.write(pickle.dumps(cookie_dict))
+
+                return response.cookies
+
+        except httpx.ConnectError as e:
+            raise ConnectionError(
+                f"Cannot connect to SimDB at {base_url}",
+                recovery_hint="Check network connection and SIMDB_REMOTE_URL setting",
+            ) from e
+
+    async def _detect_api_version(self) -> str:
+        """Detect latest compatible API version from server.
+
+        Returns:
+            API version string (e.g., "v1.2")
+        """
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.settings.simdb_remote_url,
+                cookies=self._cookies,
+                headers={"User-Agent": "it_script_basic"},
+                timeout=30.0,
+            ) as client:
+                response = await client.get("/")
+                data = response.json()
+                endpoints = data.get("endpoints", [])
+
+                if not endpoints:
+                    return "v1.2"  # Fallback to known version
+
+                # Extract versions from endpoint URLs
+                versions = [ep.split("/")[-1] for ep in endpoints if "/v" in ep]
+                return max(versions) if versions else "v1.2"
+
+        except Exception:
+            # If detection fails, use hardcoded fallback
+            return "v1.2"
 
     async def query(
         self,
@@ -110,91 +259,135 @@ class SimDBClient:
                 Operators: 'eq:', 'in:', 'gt:', 'ge:', 'lt:', 'le:'
                 Example: {'machine': 'ITER', 'code.name': 'in:METIS'}
             limit: Maximum number of results to return
-            include_metadata: Additional metadata fields to include in query.
-                REQUIRED to get fields beyond alias and machine.
-                Common fields: 'uploaded_by' (email), 'code.name', 'code.version',
+            include_metadata: Additional metadata fields to include as query parameters.
+                Common fields: 'uploaded_by', 'code.name', 'code.version',
                 'status', 'description'.
                 Example: ['uploaded_by', 'code.name', 'code.version']
 
         Returns:
-            List of Simulation objects matching constraints.
-            Note: Parser currently maps limited fields. For rich metadata,
-            use run_process() directly and parse output table yourself.
+            List of Simulation objects parsed from JSON response
 
         Raises:
-            AuthenticationError: If credentials are invalid
-            ConnectionError: If SimDB is unreachable
-            ValidationError: If constraints are malformed
+            AuthenticationError: If credentials are invalid (HTTP 401)
+            ConnectionError: If SimDB is unreachable or returns error
+            httpx.HTTPStatusError: For other HTTP errors (404, 500, etc.)
 
         Examples:
             >>> # Find ITER simulations
-            >>> results = await query({'machine': 'ITER'}, limit=5)
+            >>> results = await client.query({'machine': 'ITER'}, limit=5)
 
             >>> # Search by code name (contains)
-            >>> results = await query({'code.name': 'in:METIS'})
-
-            >>> # Power greater than 20 MW
-            >>> results = await query({
-            ...     'heating_current_drive.power_additional.value': 'gt:20000000'
-            ... })
+            >>> results = await client.query({'code.name': 'in:METIS'})
 
             >>> # Multiple constraints (AND logic)
-            >>> results = await query({
+            >>> results = await client.query({
             ...     'machine': 'ITER',
             ...     'status': 'passed'
             ... }, limit=10)
+            >>>
+            >>> # Request specific metadata fields
+            >>> results = await client.query(
+            ...     {'machine': 'ITER'},
+            ...     include_metadata=['uploaded_by', 'description']
+            ... )
         """
-        # Build constraint arguments
-        constraint_args = []
+        # Build query parameters from constraints
+        params = {}
         for field, value in constraints.items():
-            if value.startswith(("eq:", "in:", "gt:", "ge:", "lt:", "le:")):
-                constraint_args.append(f"{field}={value}")
-            else:
-                # Default to exact match
-                constraint_args.append(f"{field}={value}")
+            # API expects list values for params
+            params[field] = [value]
 
-        # Get credentials
-        username, password = get_credentials()
-
-        # Build command with authentication
-        cmd = [
-            "uv",
-            "run",
-            "simdb",
-            "remote",
-            "--username",
-            username,
-            "--password",
-            password,
-            "query",
-            *constraint_args,
-            "--limit",
-            str(limit),
-        ]
-
-        # Add metadata columns if requested
+        # Build endpoint with metadata fields in query string
+        endpoint = "simulations"
         if include_metadata:
-            for field in include_metadata:
-                cmd.extend(["-m", field])
+            # Metadata fields go in URL query string (no values)
+            metadata_query = "&".join(include_metadata)
+            endpoint = f"{endpoint}?{metadata_query}"
 
-        # Execute command
+        # Build HTTP headers for pagination
+        headers = {
+            "simdb-result-limit": str(limit),
+            "simdb-page": "1",
+        }
+
+        # Use persistent client if available, otherwise create ephemeral
+        if self._client:
+            response = await self._make_request(self._client, endpoint, params, headers)
+        else:
+            cookies = await self._get_cookies()
+            api_version = await self._detect_api_version()
+
+            async with httpx.AsyncClient(
+                base_url=f"{self.settings.simdb_remote_url}/{api_version}/",
+                cookies=cookies,
+                headers={"User-Agent": "it_script_basic"},
+                timeout=30.0,
+            ) as client:
+                response = await self._make_request(client, endpoint, params, headers)
+
+        # Parse JSON response to Simulation objects
+        data = response.json()
+        results = data.get("results", [])
+        return [Simulation.from_api_response(sim_data) for sim_data in results]
+
+    async def _make_request(
+        self,
+        client: httpx.AsyncClient,
+        endpoint: str,
+        params: dict,
+        headers: dict,
+    ) -> httpx.Response:
+        """Make HTTP request with error handling.
+
+        Args:
+            client: httpx client to use
+            endpoint: API endpoint path (may include query string for metadata fields)
+            params: Query parameters (constraint key-value pairs)
+            headers: HTTP headers
+
+        Returns:
+            HTTP response
+
+        Raises:
+            AuthenticationError: On HTTP 401
+            ConnectionError: On connection errors or HTTP 5xx
+        """
+        from urllib.parse import urlencode
+
         try:
-            result = await anyio.run_process(cmd, check=False)
+            # Build URL with both metadata query string and constraint params
+            if "?" in endpoint:
+                # Endpoint has metadata fields, append constraint params
+                constraint_params = []
+                for key, values in params.items():
+                    for value in values:
+                        constraint_params.append((key, value))
+                param_string = urlencode(constraint_params)
+                full_url = f"{endpoint}&{param_string}" if param_string else endpoint
+                response = await client.get(full_url, headers=headers)
+            else:
+                response = await client.get(endpoint, params=params, headers=headers)
 
-            if result.returncode != 0:
-                error_msg = result.stderr.decode() if result.stderr else "Unknown error"
+            response.raise_for_status()
+            return response
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                raise AuthenticationError(
+                    "Invalid SimDB credentials",
+                    recovery_hint="Check SIMDB_USERNAME and SIMDB_PASSWORD in .env",
+                ) from e
+            if e.response.status_code >= 500:
                 raise ConnectionError(
-                    f"SimDB query failed: {error_msg}",
-                    recovery_hint="Check credentials and network: uv run simdb remote test",
-                )
+                    f"SimDB server error: HTTP {e.response.status_code}",
+                    recovery_hint="SimDB server may be experiencing issues. Try again later.",
+                ) from e
+            raise
 
-            output = result.stdout.decode()
-            return parse_query_output(output)
-
-        except FileNotFoundError as e:
+        except httpx.ConnectError as e:
             raise ConnectionError(
-                "simdb CLI not found",
-                recovery_hint="Install simdb: uv add imas-simdb",
+                f"Cannot connect to SimDB at {self.settings.simdb_remote_url}",
+                recovery_hint="Check network connection and SIMDB_REMOTE_URL setting",
             ) from e
 
 
@@ -247,20 +440,38 @@ async def get_simulation(simulation_id: str) -> Simulation:
     """Get detailed simulation information by ID.
 
     Args:
-        simulation_id: Simulation ID in format "run/version" (e.g., "100001/2")
+        simulation_id: Simulation UUID
 
     Returns:
-        Simulation object with detailed metadata
+        Simulation object with full metadata
 
     Raises:
         ConnectionError: If SimDB is unreachable or simulation not found
+        AuthenticationError: If credentials are invalid
 
     Examples:
         >>> from nucleai.simdb import get_simulation
-        >>> sim = await get_simulation("100001/2")
+        >>> sim = await get_simulation("123e4567-e89b-12d3-a456-426614174000")
         >>> print(sim.description)
     """
-    raise NotImplementedError("get_simulation not yet implemented")
+    client = SimDBClient()
+    cookies = await client._get_cookies()
+    api_version = await client._detect_api_version()
+
+    async with httpx.AsyncClient(
+        base_url=f"{client.settings.simdb_remote_url}/{api_version}/",
+        cookies=cookies,
+        headers={"User-Agent": "it_script_basic"},
+        timeout=30.0,
+    ) as http_client:
+        response = await client._make_request(
+            http_client,
+            f"simulation/{simulation_id}",
+            params={},
+            headers={},
+        )
+        data = response.json()
+        return Simulation.from_api_response(data)
 
 
 async def list_simulations(limit: int = 10) -> list[Simulation]:
@@ -274,6 +485,7 @@ async def list_simulations(limit: int = 10) -> list[Simulation]:
 
     Raises:
         ConnectionError: If SimDB is unreachable
+        AuthenticationError: If credentials are invalid
 
     Examples:
         >>> from nucleai.simdb import list_simulations
@@ -281,4 +493,65 @@ async def list_simulations(limit: int = 10) -> list[Simulation]:
         >>> for sim in recent:
         ...     print(f"{sim.alias}: {sim.machine}")
     """
-    raise NotImplementedError("list_simulations not yet implemented")
+    return await query({}, limit=limit)
+
+
+async def discover_available_fields() -> dict[str, str]:
+    """Discover available fields and their descriptions from SimDB metadata.
+
+    Queries the /metadata endpoint to retrieve the list of all available
+    fields that can be used in queries and include_metadata parameters.
+
+    Returns:
+        Dictionary mapping field names to descriptions.
+        Empty dict if metadata endpoint is not available.
+
+    Examples:
+        >>> from nucleai.simdb import discover_available_fields
+        >>> fields = await discover_available_fields()
+        >>> print(fields['uploaded_by'])
+        'Email of user who uploaded the simulation'
+        >>> print(list(fields.keys())[:5])
+        ['alias', 'machine', 'code.name', 'uploaded_by', 'description']
+    """
+    settings = get_settings()
+    client = SimDBClient()
+    cookies = await client._get_cookies()
+
+    # Detect API version
+    try:
+        async with httpx.AsyncClient(
+            base_url=settings.simdb_remote_url,
+            cookies=cookies,
+            headers={"User-Agent": "it_script_basic"},
+            timeout=30.0,
+        ) as http_client:
+            response = await http_client.get("/")
+            data = response.json()
+            endpoints = data.get("endpoints", [])
+            versions = [ep.split("/")[-1] for ep in endpoints if "/v" in ep]
+            api_version = max(versions) if versions else "v1.2"
+    except Exception:
+        api_version = "v1.2"
+
+    # Try to fetch metadata
+    try:
+        async with httpx.AsyncClient(
+            base_url=f"{settings.simdb_remote_url}/{api_version}/",
+            cookies=cookies,
+            headers={"User-Agent": "it_script_basic"},
+            timeout=30.0,
+        ) as http_client:
+            response = await http_client.get("metadata")
+            response.raise_for_status()
+
+            data = response.json()
+            # Assuming metadata endpoint returns {"fields": [{"name": "...", "description": "..."}, ...]}
+            if "fields" in data:
+                return {field["name"]: field.get("description", "") for field in data["fields"]}
+            # Alternative format: direct field->description mapping
+            return data
+
+    except Exception:
+        # If metadata endpoint doesn't exist or fails, return empty dict
+        return {}

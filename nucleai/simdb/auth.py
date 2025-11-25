@@ -1,17 +1,18 @@
 """Authentication management for SimDB.
 
-Handles credential loading from environment and preparation of subprocess
-environment for non-interactive SimDB CLI commands.
+Handles credential loading from environment for HTTP Basic Auth with
+SimDB REST API.
 
 Functions:
     get_credentials: Load and validate SimDB credentials
-    prepare_env: Prepare environment dict for subprocess
+    prepare_env: Prepare environment dict for subprocess (legacy)
 
 Examples:
     >>> from nucleai.simdb.auth import get_credentials
     >>> username, password = get_credentials()
-    >>> print(username)
-    your_iter_username
+    >>> # Use with httpx
+    >>> import httpx
+    >>> client = httpx.AsyncClient(auth=(username, password))
 """
 
 import os
