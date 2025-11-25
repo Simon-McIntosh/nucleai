@@ -46,12 +46,22 @@ def test_settings_validation_temperature(temp_env, monkeypatch):
         Settings()
 
 
-def test_settings_missing_required_fields(monkeypatch):
+def test_settings_missing_required_fields(tmp_path, monkeypatch):
     """Test that missing required fields raise validation error."""
-    # Remove required field
+    # Point to non-existent .env file to prevent loading from project .env
+    monkeypatch.chdir(tmp_path)
+
+    # Remove required fields
     monkeypatch.delenv("SIMDB_USERNAME", raising=False)
     monkeypatch.delenv("SIMDB_PASSWORD", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as exc_info:
         Settings()
+
+    # Verify the error mentions missing fields
+    errors = exc_info.value.errors()
+    missing_fields = {err["loc"][0] for err in errors if err["type"] == "missing"}
+    assert "simdb_username" in missing_fields
+    assert "simdb_password" in missing_fields
+    assert "openrouter_api_key" in missing_fields
