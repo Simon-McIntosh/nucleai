@@ -2,7 +2,26 @@
 
 **AI Support for Fusion Experiments**
 
-`nucleai` is a codegen-first library designed to empower fusion research with advanced AI capabilities. It provides a comprehensive workflow for extracting features from fusion data, generating rich descriptions, and creating vector embeddings for both feature images and text.
+`nucleai` is a **codegen-first, self-documenting** library for fusion research with advanced AI capabilities. Designed for AI agents to discover and use through runtime introspection.
+
+[![CI](https://github.com/your-org/nucleai/workflows/CI/badge.svg)](https://github.com/your-org/nucleai/actions)
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/your-org/nucleai)
+[![Docstring Coverage](https://img.shields.io/badge/docstring%20coverage-100%25-brightgreen)](https://github.com/your-org/nucleai)
+
+## 🤖 For AI Agents
+
+**This library is self-documenting.** Use Python's `help()` system to discover everything:
+
+```python
+import nucleai
+help(nucleai)  # Start here
+caps = nucleai.list_capabilities()  # Discover modules
+help(nucleai.simdb.query)  # Learn any function
+```
+
+👉 **See [AGENT_QUICKSTART.md](AGENT_QUICKSTART.md) for the complete agent guide**
+
+👉 **Use [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md) as your system prompt**
 
 ## Key Features
 
@@ -80,6 +99,11 @@ from nucleai.core.introspect import get_function_signature
 sig = get_function_signature(nucleai.simdb.query)
 print(sig['parameters'])  # See parameter types
 ```
+
+📚 **Agent Resources**:
+- [AGENT_QUICKSTART.md](AGENT_QUICKSTART.md) - Quick discovery guide
+- [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md) - System prompt template
+- [AGENTS.md](AGENTS.md) - Complete development guidelines
 
 ## Architecture
 

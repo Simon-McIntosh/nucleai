@@ -272,3 +272,172 @@ def extract_features(data: FusionData, config: Config) -> list[Feature]:
   - Function names
 
 Write code as if it's always been this way.
+
+## Agent Introspection Workflow
+
+### Discovery Pattern
+
+This codebase is designed for **runtime introspection**. Instead of reading external documentation, use Python's built-in `help()` system and introspection utilities.
+
+**Step 1: Discover capabilities**
+```python
+import nucleai
+caps = nucleai.list_capabilities()
+# Returns: {'core': 'nucleai.core', 'simdb': 'nucleai.simdb', ...}
+```
+
+**Step 2: Explore a module**
+```python
+import nucleai.simdb
+help(nucleai.simdb)  # Read module docstring with examples
+```
+
+**Step 3: Understand a function**
+```python
+help(nucleai.simdb.query)  # Get full documentation with examples
+```
+
+**Step 4: Extract executable code**
+All docstrings contain executable examples you can copy:
+```python
+# From help(nucleai.simdb.query):
+results = await query({'machine': 'ITER'}, limit=5)
+for sim in results:
+    print(f"{sim.alias}: {sim.code.name}")
+```
+
+### Programmatic Introspection
+
+For agents that need structured information:
+
+```python
+from nucleai.core.introspect import get_function_signature, list_module_functions
+
+# Get function signature
+sig = get_function_signature(nucleai.simdb.query)
+print(sig['name'])         # 'query'
+print(sig['parameters'])   # {'constraints': 'dict[str, str]', 'limit': 'int', ...}
+print(sig['returns'])      # 'list[nucleai.core.models.Simulation]'
+print(sig['docstring'])    # Full documentation
+
+# List all functions in a module
+functions = list_module_functions(nucleai.simdb)
+# Returns: ['query', 'get_simulation', 'list_simulations', ...]
+```
+
+### Schema Extraction
+
+All data models are Pydantic with JSON schema:
+
+```python
+from nucleai.core.models import Simulation
+
+# Get JSON schema
+schema = Simulation.model_json_schema()
+print(schema['properties'])  # All fields with types
+print(schema['required'])    # Required fields
+
+# Create instance with validation
+sim = Simulation(
+    uuid="123e4567-e89b-12d3-a456-426614174000",
+    alias="ITER-001",
+    machine="ITER",
+    code=CodeInfo(name="METIS", version="1.0"),
+    description="Baseline scenario",
+    status="passed"
+)
+```
+
+### Exception Handling
+
+All exceptions include recovery hints for debugging:
+
+```python
+from nucleai.core.exceptions import AuthenticationError
+
+try:
+    results = await query({'machine': 'ITER'})
+except AuthenticationError as e:
+    print(f"Error: {e}")
+    print(f"Fix: {e.recovery_hint}")
+    # Output: "Check SIMDB_USERNAME and SIMDB_PASSWORD in .env"
+```
+
+### Configuration Discovery
+
+Settings are documented in the config module:
+
+```python
+from nucleai.core.config import get_settings
+help(get_settings)  # See all environment variables needed
+
+settings = get_settings()
+# Settings loaded from .env automatically
+```
+
+### Agent Workflow Example
+
+Complete workflow for an agent discovering and using nucleai:
+
+```python
+# 1. Start - discover what's available
+import nucleai
+print(nucleai.__doc__)  # Read module overview
+caps = nucleai.list_capabilities()
+
+# 2. Pick a capability to explore
+import nucleai.simdb
+help(nucleai.simdb)  # Read SimDB documentation
+
+# 3. Learn about a specific function
+help(nucleai.simdb.query)  # Get usage examples
+
+# 4. Copy example from docstring and adapt
+results = await nucleai.simdb.query(
+    constraints={'machine': 'ITER', 'status': 'passed'},
+    limit=10
+)
+
+# 5. Work with results (schema is documented)
+from nucleai.core.models import Simulation
+help(Simulation)  # Understand the data structure
+
+for sim in results:
+    print(f"{sim.alias}: {sim.code.name} v{sim.code.version}")
+```
+
+### Key Principles for Agents
+
+1. **Always start with `help()`** - Don't guess, read the docstrings
+2. **Copy examples from docstrings** - They're tested and executable
+3. **Use introspection for structure** - `get_function_signature()` when you need details
+4. **Check exception recovery hints** - They tell you how to fix issues
+5. **Trust the types** - All functions have full type annotations
+6. **Configuration is self-documenting** - See `.env.example` and `help(get_settings)`
+
+### What NOT to Do
+
+❌ Don't try to read source code directly - use `help()`
+❌ Don't guess function signatures - use `get_function_signature()`
+❌ Don't assume data structure - use `model_json_schema()`
+❌ Don't hardcode values - use settings from environment
+
+### Testing Your Understanding
+
+Validate what you've learned:
+
+```python
+# Test 1: Can you list available capabilities?
+import nucleai
+assert 'simdb' in nucleai.list_capabilities()
+
+# Test 2: Can you get function documentation?
+import nucleai.simdb
+sig = get_function_signature(nucleai.simdb.query)
+assert 'constraints' in sig['parameters']
+
+# Test 3: Can you understand data schemas?
+from nucleai.core.models import Simulation
+schema = Simulation.model_json_schema()
+assert 'uuid' in schema['properties']
+```

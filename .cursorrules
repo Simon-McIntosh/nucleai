@@ -1,0 +1,92 @@
+# nucleai/.cursorrules
+
+You are working with the `nucleai` codebase - a self-documenting Python library for AI-driven fusion experiment analysis.
+
+## Discovery First
+
+**Before writing any code**, discover what exists:
+
+```python
+import nucleai
+help(nucleai)  # Read the module overview
+caps = nucleai.list_capabilities()  # List all available modules
+```
+
+## Use Runtime Introspection
+
+**Don't guess** - use introspection:
+
+```python
+# Understand a function
+help(nucleai.simdb.query)  # Read full documentation
+
+# Get structured info
+from nucleai.core.introspect import get_function_signature
+sig = get_function_signature(nucleai.simdb.query)
+print(sig['parameters'])  # See all parameter types
+
+# Explore data schemas
+from nucleai.core.models import Simulation
+schema = Simulation.model_json_schema()
+```
+
+## Copy Examples from Docstrings
+
+Every public function has executable examples in its docstring:
+
+```python
+help(nucleai.simdb.query)
+# Copy the example code shown in the docstring
+# It's tested and guaranteed to work
+```
+
+## Configuration
+
+Check `.env.example` for required environment variables. Settings are documented:
+
+```python
+from nucleai.core.config import get_settings
+help(get_settings)  # See all environment variables
+```
+
+## Error Handling
+
+All exceptions have recovery hints:
+
+```python
+try:
+    results = await nucleai.simdb.query({'machine': 'ITER'})
+except Exception as e:
+    if hasattr(e, 'recovery_hint'):
+        print(f"Fix: {e.recovery_hint}")
+```
+
+## Development Workflow
+
+1. Use `uv run` for all Python commands
+2. Run tests before committing: `uv run pytest --cov`
+3. Pre-commit hooks will check code quality
+4. See `AGENTS.md` for complete guidelines
+
+## Key Principles
+
+- ✅ Start with `help()` - read docstrings first
+- ✅ Copy examples from docstrings - they're executable
+- ✅ Use `get_function_signature()` for details
+- ✅ Trust type annotations - they're complete
+- ❌ Don't read source code directly
+- ❌ Don't guess function signatures
+- ❌ Don't assume data structures
+
+## Quick Reference
+
+| Need | Command |
+|------|---------|
+| Module overview | `help(nucleai.module)` |
+| Function docs | `help(nucleai.module.function)` |
+| List functions | `list_module_functions(module)` |
+| Function signature | `get_function_signature(func)` |
+| Data schema | `Model.model_json_schema()` |
+| Settings | `help(get_settings)` |
+
+For complete agent guidelines, see `AGENTS.md` and `AGENT_QUICKSTART.md`.
