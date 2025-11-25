@@ -137,6 +137,129 @@ class Simulation(pydantic.BaseModel):
     composition: dict[str, float] = pydantic.Field(default_factory=dict)
     heating: dict[str, float] = pydantic.Field(default_factory=dict)
 
+    @pydantic.field_validator("ids", mode="before")
+    @classmethod
+    def parse_ids_string(cls, value):
+        """Parse ids field from string representation to list.
+
+        API returns ids as string like '[core_profiles, equilibrium]'.
+        Convert to proper list of strings.
+        """
+        if isinstance(value, str):
+            # Remove brackets and split by comma
+            value = value.strip("[]")
+            if value:
+                return [s.strip() for s in value.split(",")]
+            return None
+        return value
+
+    @pydantic.field_validator("uuid", mode="before")
+    @classmethod
+    def parse_uuid(cls, value):
+        """Parse UUID from API format.
+
+        API returns uuid as {"_type": "uuid.UUID", "hex": "..."}.
+        Extract the hex string.
+        """
+        if isinstance(value, dict) and "hex" in value:
+            return value["hex"]
+        return value
+
+    @pydantic.model_validator(mode="before")
+    @classmethod
+    def transform_api_response(cls, data):
+        """Transform SimDB REST API response to model format.
+
+        Handles the metadata array structure from API and flattens it.
+        API format:
+            {"uuid": {...}, "alias": "...", "metadata": [{"element": "field", "value": "val"}, ...]}
+
+        Transforms to flat structure with metadata fields unpacked.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        # If no metadata array, pass through (already transformed or direct construction)
+        if "metadata" not in data:
+            return data
+
+        # Start with copy of data
+        transformed = {}
+
+        # Copy non-metadata fields
+        for key in ["uuid", "alias", "datetime"]:
+            if key in data:
+                transformed[key] = data[key]
+
+        # Parse metadata array into flat dict
+        metadata_dict = {}
+        for item in data["metadata"]:
+            element = item.get("element", "")
+            value = item.get("value")
+            if element and value is not None:
+                metadata_dict[element] = value
+
+        # Map well-known fields to model attributes
+        if "machine" in metadata_dict:
+            transformed["machine"] = metadata_dict["machine"]
+
+        # Handle nested code info
+        if "code.name" in metadata_dict:
+            code_info = {"name": metadata_dict["code.name"]}
+            if "code.version" in metadata_dict:
+                code_info["version"] = metadata_dict["code.version"]
+            if "code.commit" in metadata_dict:
+                code_info["commit"] = metadata_dict["code.commit"]
+            if "code.repository" in metadata_dict:
+                code_info["repository"] = metadata_dict["code.repository"]
+            transformed["code"] = code_info
+
+        # Map simple optional fields
+        for field in [
+            "status",
+            "description",
+            "uploaded_by",
+            "ids",
+            "time_begin",
+            "time_end",
+            "time_step",
+            "creation_date",
+        ]:
+            if field in metadata_dict:
+                transformed[field] = metadata_dict[field]
+
+        # Store remaining metadata as extra fields (available via model_extra)
+        excluded_keys = {
+            "machine",
+            "code.name",
+            "code.version",
+            "code.commit",
+            "code.repository",
+            "status",
+            "description",
+            "uploaded_by",
+            "ids",
+            "time_begin",
+            "time_end",
+            "time_step",
+            "creation_date",
+        }
+        for key, value in metadata_dict.items():
+            if key not in excluded_keys:
+                transformed[key] = value
+
+        # Set defaults for required fields if missing
+        if "machine" not in transformed:
+            transformed["machine"] = ""
+        if "code" not in transformed:
+            transformed["code"] = {"name": ""}
+        if "description" not in transformed:
+            transformed["description"] = ""
+        if "status" not in transformed:
+            transformed["status"] = "pending"
+
+        return transformed
+
     @classmethod
     def from_api_response(cls, data: dict) -> "Simulation":
         """Create Simulation from SimDB REST API JSON response.
@@ -145,7 +268,7 @@ class Simulation(pydantic.BaseModel):
         - uuid as {"_type": "uuid.UUID", "hex": "..."}
         - metadata as array: [{"element": "field", "value": "val"}, ...]
 
-        Transforms this into the Simulation model schema.
+        Transforms this into the Simulation model schema using Pydantic validators.
 
         Args:
             data: JSON dict from SimDB REST API
@@ -166,77 +289,8 @@ class Simulation(pydantic.BaseModel):
             >>> print(sim.alias)
             100001/2
         """
-        # Transform API format to model format
-        transformed = {}
-
-        # Handle UUID
-        if "uuid" in data:
-            if isinstance(data["uuid"], dict) and "hex" in data["uuid"]:
-                transformed["uuid"] = data["uuid"]["hex"]
-            else:
-                transformed["uuid"] = data["uuid"]
-
-        # Copy simple fields
-        if "alias" in data:
-            transformed["alias"] = data["alias"]
-        if "datetime" in data:
-            transformed["datetime"] = data["datetime"]
-
-        # Parse metadata array into flat structure
-        if "metadata" in data:
-            metadata_dict = {}
-            for item in data["metadata"]:
-                element = item.get("element", "")
-                value = item.get("value")
-                if element and value is not None:
-                    metadata_dict[element] = value
-
-            # Map common metadata fields
-            if "machine" in metadata_dict:
-                transformed["machine"] = metadata_dict["machine"]
-
-            if "code.name" in metadata_dict:
-                code_info = {"name": metadata_dict["code.name"]}
-                if "code.version" in metadata_dict:
-                    code_info["version"] = metadata_dict["code.version"]
-                if "code.commit" in metadata_dict:
-                    code_info["commit"] = metadata_dict["code.commit"]
-                if "code.repository" in metadata_dict:
-                    code_info["repository"] = metadata_dict["code.repository"]
-                transformed["code"] = code_info
-
-            if "status" in metadata_dict:
-                transformed["status"] = metadata_dict["status"]
-            if "description" in metadata_dict:
-                transformed["description"] = metadata_dict["description"]
-            if "uploaded_by" in metadata_dict:
-                transformed["uploaded_by"] = metadata_dict["uploaded_by"]
-
-            # Store remaining metadata as extra fields
-            for key, value in metadata_dict.items():
-                if key not in [
-                    "machine",
-                    "code.name",
-                    "code.version",
-                    "code.commit",
-                    "code.repository",
-                    "status",
-                    "description",
-                    "uploaded_by",
-                ]:
-                    transformed[key] = value
-
-        # Set defaults for required fields if missing
-        if "machine" not in transformed:
-            transformed["machine"] = ""
-        if "code" not in transformed:
-            transformed["code"] = {"name": ""}
-        if "description" not in transformed:
-            transformed["description"] = ""
-        if "status" not in transformed:
-            transformed["status"] = "pending"  # Use valid literal value
-
-        return cls.model_validate(transformed)
+        # Let Pydantic validators handle transformation
+        return cls.model_validate(data)
 
 
 QueryOperator = Literal["eq", "in", "gt", "ge", "lt", "le", "agt", "age", "alt", "ale"]

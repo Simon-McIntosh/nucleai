@@ -496,23 +496,71 @@ async def list_simulations(limit: int = 10) -> list[Simulation]:
     return await query({}, limit=limit)
 
 
-async def discover_available_fields() -> dict[str, str]:
-    """Discover available fields and their descriptions from SimDB metadata.
+async def discover_available_fields() -> list[dict[str, str]]:
+    """Discover all 611 metadata fields available from SimDB REST API.
 
-    Queries the /metadata endpoint to retrieve the list of all available
-    fields that can be used in queries and include_metadata parameters.
+    CRITICAL for AI agents: Use this function to discover what metadata you can
+    request. The API provides 611 fields across 18 categories including plasma
+    parameters, heating data, composition, and more.
+
+    Returns a list of field metadata dictionaries with 'name' and 'type' keys.
+    These field names can be used in the include_metadata parameter of query().
 
     Returns:
-        Dictionary mapping field names to descriptions.
-        Empty dict if metadata endpoint is not available.
+        List of dicts with keys:
+            - 'name': Field path (e.g., 'global_quantities.ip.value')
+            - 'type': Data type ('str', 'int', 'float', 'ndarray', etc.)
+
+    Field Categories (top 10 by count):
+        - local: 288 fields (local plasma parameters)
+        - heating_current_drive: 64 fields (heating & current drive)
+        - global_quantities: 56 fields (Ip, beta, b0, etc.)
+        - code: 27 fields (code metadata)
+        - fusion: 27 fields (fusion reactions)
+        - composition: 17 fields (D, T, He, impurities)
+        - boundary: 23 fields (plasma boundary)
+        - volume_average: 20 fields (volume-averaged quantities)
+        - line_average: 18 fields (line-averaged quantities)
+        - scrape_off_layer: 15 fields (SOL parameters)
+
+    Commonly Used Fields:
+        - machine, code.name, code.version, status, uploaded_by
+        - global_quantities.ip.value (plasma current time trace)
+        - global_quantities.b0.value (magnetic field)
+        - composition.deuterium.value, composition.helium.value
+        - heating_current_drive.ec[0].power.value
+        - simulation.time_begin, simulation.time_end
+        - ids (list of available IDS types like 'equilibrium', 'core_profiles')
+
+    Note: These fields reflect IDS (IMAS Data Structure) schema. Not all
+    fields have data for all simulations. Use include_metadata with specific
+    field names to request them in query().
 
     Examples:
         >>> from nucleai.simdb import discover_available_fields
+        >>>
+        >>> # Get all available fields
         >>> fields = await discover_available_fields()
-        >>> print(fields['uploaded_by'])
-        'Email of user who uploaded the simulation'
-        >>> print(list(fields.keys())[:5])
-        ['alias', 'machine', 'code.name', 'uploaded_by', 'description']
+        >>> print(f"Total fields: {len(fields)}")  # 611
+        >>>
+        >>> # Find plasma current field
+        >>> ip_fields = [f for f in fields if 'ip' in f['name'].lower()]
+        >>> print(ip_fields[0]['name'])  # 'global_quantities.ip.value'
+        >>>
+        >>> # Group by category
+        >>> from collections import defaultdict
+        >>> categories = defaultdict(list)
+        >>> for field in fields:
+        ...     category = field['name'].split('.')[0]
+        ...     categories[category].append(field)
+        >>> print(f"Categories: {list(categories.keys())}")
+        >>>
+        >>> # Request specific fields in a query
+        >>> from nucleai.simdb import query
+        >>> results = await query(
+        ...     {'machine': 'ITER'},
+        ...     include_metadata=['global_quantities.ip.value', 'composition.deuterium.value']
+        ... )
     """
     settings = get_settings()
     client = SimDBClient()
