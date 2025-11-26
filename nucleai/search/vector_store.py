@@ -122,7 +122,10 @@ class ChromaDBVectorStore:
                 similarity = 1.0 / (1.0 + distance)  # Convert distance to similarity
 
                 metadata = response["metadatas"][0][i] if response["metadatas"] else {}
-                content = response["documents"][0][i] if response["documents"] else ""
+                content = response["documents"][0][i] if response["documents"] else None
+                # ChromaDB may return None for documents if not stored
+                if content is None:
+                    content = ""
 
                 results.append(
                     SearchResult(

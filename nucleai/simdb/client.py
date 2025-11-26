@@ -318,7 +318,10 @@ class SimDBClient:
         # Parse JSON response to Simulation objects
         data = response.json()
         results = data.get("results", [])
-        return [Simulation.from_api_response(sim_data) for sim_data in results]
+        simulations = [Simulation.from_api_response(sim_data) for sim_data in results]
+
+        # SimDB API returns one more result than requested - slice to exact limit
+        return simulations[:limit]
 
     async def _make_request(
         self,
@@ -439,11 +442,14 @@ async def query(
 async def get_simulation(simulation_id: str) -> Simulation:
     """Get detailed simulation information by ID.
 
+    Fetches full simulation details including inputs/outputs with IMAS URIs.
+    Use this to get the IMAS URI for loading IDS data with imas-python.
+
     Args:
-        simulation_id: Simulation UUID
+        simulation_id: Simulation UUID or alias
 
     Returns:
-        Simulation object with full metadata
+        Simulation object with full metadata, inputs, and outputs
 
     Raises:
         ConnectionError: If SimDB is unreachable or simulation not found
@@ -451,8 +457,18 @@ async def get_simulation(simulation_id: str) -> Simulation:
 
     Examples:
         >>> from nucleai.simdb import get_simulation
-        >>> sim = await get_simulation("123e4567-e89b-12d3-a456-426614174000")
-        >>> print(sim.description)
+        >>> import imas
+        >>>
+        >>> # Get simulation with IMAS URI
+        >>> sim = await get_simulation("100001/2")
+        >>> print(sim.imas_uri)
+        imas://uda.iter.org/uda?path=/work/imas/shared/imasdb/ITER/3/100001/2&backend=hdf5
+        >>>
+        >>> # Load IDS data
+        >>> if sim.imas_uri:
+        ...     with imas.DBEntry(sim.imas_uri, "r") as entry:
+        ...         equilibrium = entry.get("equilibrium", lazy=True)
+        ...         print(f"Time points: {len(equilibrium.time)}")
     """
     client = SimDBClient()
     cookies = await client._get_cookies()

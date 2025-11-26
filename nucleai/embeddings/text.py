@@ -29,7 +29,7 @@ def create_embedding_client() -> AsyncOpenAI:
         >>> assert client.base_url is not None
     """
     settings = get_settings()
-    return AsyncOpenAI(api_key=settings.openrouter_api_key, base_url=settings.openrouter_base_url)
+    return AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
 
 
 async def generate_text_embedding(text: str) -> list[float]:
@@ -77,5 +77,5 @@ async def generate_text_embedding(text: str) -> list[float]:
     except Exception as e:
         raise EmbeddingError(
             f"Failed to generate embedding: {e}",
-            recovery_hint="Check OPENROUTER_API_KEY and network connection",
+            recovery_hint="Check OPENAI_API_KEY and network connection",
         ) from e

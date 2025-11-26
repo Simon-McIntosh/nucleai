@@ -11,7 +11,7 @@ def test_settings_loads_from_env(temp_env):
     settings = Settings()
     assert settings.simdb_username == temp_env["SIMDB_USERNAME"]
     assert settings.simdb_password == temp_env["SIMDB_PASSWORD"]
-    assert settings.openrouter_api_key == temp_env["OPENROUTER_API_KEY"]
+    assert settings.openai_api_key == temp_env["OPENAI_API_KEY"]
 
 
 def test_settings_default_values(temp_env):
@@ -54,7 +54,7 @@ def test_settings_missing_required_fields(tmp_path, monkeypatch):
     # Remove required fields
     monkeypatch.delenv("SIMDB_USERNAME", raising=False)
     monkeypatch.delenv("SIMDB_PASSWORD", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     with pytest.raises(ValidationError) as exc_info:
         Settings()
@@ -64,4 +64,4 @@ def test_settings_missing_required_fields(tmp_path, monkeypatch):
     missing_fields = {err["loc"][0] for err in errors if err["type"] == "missing"}
     assert "simdb_username" in missing_fields
     assert "simdb_password" in missing_fields
-    assert "openrouter_api_key" in missing_fields
+    assert "OPENAI_API_KEY" in missing_fields

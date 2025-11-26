@@ -8,8 +8,8 @@ Modules:
     image: Image embedding generation (placeholder)
 
 Environment Variables:
-    OPENROUTER_API_KEY: OpenRouter API key
-    OPENROUTER_BASE_URL: OpenRouter base URL (default: https://openrouter.ai/api/v1)
+    OPENAI_API_KEY: API key for OpenAI-compatible service
+    OPENAI_BASE_URL: Base URL for API (default: https://openrouter.ai/api/v1)
     EMBEDDING_MODEL: Model name (e.g., openai/text-embedding-3-small)
 
 Examples:

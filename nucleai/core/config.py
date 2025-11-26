@@ -15,8 +15,8 @@ Environment Variables:
     SIMDB_PASSWORD: ITER password for SimDB authentication
     SIMDB_REMOTE_URL: SimDB API endpoint URL
     SIMDB_REMOTE_NAME: SimDB remote name
-    OPENROUTER_API_KEY: OpenRouter API key for LLM and embeddings
-    OPENROUTER_BASE_URL: OpenRouter base URL (OpenAI-compatible)
+    OPENAI_API_KEY: API key for OpenAI-compatible service (e.g., OpenRouter)
+    OPENAI_BASE_URL: Base URL for OpenAI-compatible API
     EMBEDDING_MODEL: Embedding model name
     EMBEDDING_DIMENSIONS: Embedding vector dimensions
     LLM_MODEL: LLM model name for code generation
@@ -31,8 +31,8 @@ Examples:
     >>> settings = get_settings()
     >>> print(settings.simdb_username)
     your_iter_username
-    >>> print(settings.openrouter_api_key)
-    your_api_key
+    >>> print(settings.openai_api_key[:10] + '...')
+    sk-or-v1-c...
     >>> print(settings.embedding_model)
     openai/text-embedding-3-small
 """
@@ -55,8 +55,8 @@ class Settings(BaseSettings):
         simdb_password: ITER password for authentication
         simdb_remote_url: SimDB API endpoint
         simdb_remote_name: SimDB remote identifier
-        openrouter_api_key: API key for OpenRouter
-        openrouter_base_url: OpenRouter base URL
+        openai_api_key: API key for OpenAI-compatible service
+        openai_base_url: Base URL for OpenAI-compatible API
         embedding_model: Model for generating embeddings
         embedding_dimensions: Dimension of embedding vectors
         llm_model: LLM model for code generation
@@ -78,6 +78,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     # SimDB Configuration
@@ -86,9 +87,9 @@ class Settings(BaseSettings):
     simdb_remote_url: str = "https://simdb.iter.org/scenarios/api"
     simdb_remote_name: str = "iter"
 
-    # OpenRouter Configuration
-    openrouter_api_key: str
-    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    # OpenAI-compatible API Configuration (e.g., OpenRouter)
+    openai_api_key: str = Field(alias="OPENAI_API_KEY")
+    openai_base_url: str = Field(default="https://openrouter.ai/api/v1", alias="OPENAI_BASE_URL")
 
     # Embedding Configuration
     embedding_model: str = "openai/text-embedding-3-small"

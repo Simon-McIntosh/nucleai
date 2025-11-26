@@ -17,7 +17,7 @@ Classes:
     SimulationMetadata: Complete metadata container
 
 Examples:
-    >>> from nucleai.simdb import query
+    >>> from nucleai.simdb.metadata import SimulationMetadata
     >>> # Discover available fields
     >>> print(SimulationMetadata.model_json_schema())
     >>>

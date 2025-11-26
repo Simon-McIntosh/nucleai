@@ -21,6 +21,9 @@ dependencies = [
     "rich>=14.2.0",
 ]
 
+[project.scripts]
+docs-mcp-server = "scripts.start_docs_server:main"
+
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
