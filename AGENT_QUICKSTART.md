@@ -17,7 +17,7 @@ import nucleai.simdb
 print(get_docstring(nucleai.simdb))
 
 # Use a function (examples in docstrings)
-results = await nucleai.simdb.query({'machine': 'ITER'}, limit=5)
+results = await nucleai.simdb.query({'machine': 'ITER'})
 ```
 
 ## Core Pattern
@@ -28,6 +28,40 @@ All documentation is in docstrings:
 2. Copy examples from docstrings - All examples are tested
 3. Use `model_json_schema()` for data structures
 4. Exceptions include `recovery_hint` attribute
+
+## SimDB Query Examples
+
+```python
+from nucleai.simdb import query, fetch_simulation
+
+# Get all simulations (~1300 records, <2s)
+all_sims = await query()  # Defaults to limit=2000
+
+# Filter by machine (exact match)
+iter_sims = await query(filters={'machine': 'ITER'})
+
+# Filter by code name (contains)
+metis_sims = await query(filters={'code.name': 'in:METIS'})
+
+# Multiple filters (AND logic)
+passed = await query(filters={'machine': 'ITER', 'status': 'passed'})
+
+# Find user's latest simulation (in-code filtering)
+all_sims = await query()
+user_sims = [s for s in all_sims if s.author_email and 'Florian' in s.author_email]
+if user_sims:
+    latest = max(user_sims, key=lambda s: s.metadata.datetime or '')
+    sim = await fetch_simulation(latest.uuid)
+    print(sim.imas_uri)
+```
+
+### Filter Syntax
+
+- **Exact match**: `{'machine': 'ITER'}`
+- **Contains**: `{'code.name': 'in:METIS'}` matches METIS, METIS4IMAS, etc.
+- **Multiple**: `{'machine': 'ITER', 'status': 'passed'}` uses AND logic
+
+Available filter fields: `machine`, `status`, `alias`, `code.name`, `uuid`, `description`
 
 ## Core Capabilities
 

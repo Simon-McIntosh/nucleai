@@ -291,6 +291,41 @@ def extract_features(data: FusionData, config: Config) -> list[Feature]:
 
 Write code as if it's always been this way.
 
+## Natural Language Query Pattern Philosophy
+
+### Core Principle
+
+LLMs discover this library through Python's introspection system (`help()`, `get_docstring()`), not by reading source code or relying on limited MCP tools.
+
+### Design Principles
+
+1. Clear, intuitive field names (`author_email` not `uploaded_by`)
+2. Rich docstrings with executable examples
+3. Field descriptions in JSON schemas
+4. Type safety communicates intent (`SimulationSummary` vs `Simulation`)
+5. Helpful functions when they add value (semantic_search, full_text_search)
+
+### Example Workflow
+
+User asks: "Find Florian's latest simulation and get its IMAS URI"
+
+```python
+# 1. Introspect the API
+from nucleai.core.introspect import get_docstring
+print(get_docstring(query))  # Reads docstring with examples
+
+# 2. Compose solution from documented patterns
+from nucleai.simdb import query, fetch_simulation
+all_sims = await query()  # Fetches all ~1300 simulations in <2s
+user_sims = [s for s in all_sims if s.author_email and 'Florian' in s.author_email]
+if user_sims:
+    latest = max(user_sims, key=lambda s: s.metadata.datetime or '')
+    sim = await fetch_simulation(latest.uuid)
+    print(sim.imas_uri)
+```
+
+The API is self-documenting through Python's introspection.
+
 ## Agent Introspection Workflow
 
 ### Discovery Pattern

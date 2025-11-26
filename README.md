@@ -100,6 +100,30 @@ sig = get_function_signature(nucleai.simdb.query)
 print(sig['parameters'])  # See parameter types
 ```
 
+### Discovery Through Introspection
+
+LLMs discover APIs through docstrings and Python introspection, not by reading source code:
+
+```python
+# Read comprehensive docstrings
+from nucleai.core.introspect import get_docstring
+print(get_docstring(query))  # Full documentation with examples
+
+# Explore data schemas
+schema = SimulationSummary.model_json_schema()  # Field descriptions included
+
+# Compose solutions from patterns in docstrings
+from nucleai.simdb import query, fetch_simulation
+all_sims = await query()  # Fetches all ~1300 simulations in <2s
+user_sims = [s for s in all_sims if s.author_email and 'Florian' in s.author_email]
+if user_sims:
+    latest = max(user_sims, key=lambda s: s.metadata.datetime or '')
+    sim = await fetch_simulation(latest.uuid)
+    print(sim.imas_uri)
+```
+
+Key principles: clear field names, rich docstrings, type-safe models, field descriptions in schemas.
+
 📚 **Agent Resources**:
 - [AGENT_QUICKSTART.md](AGENT_QUICKSTART.md) - Quick discovery guide
 - [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md) - System prompt template

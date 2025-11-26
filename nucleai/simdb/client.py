@@ -29,8 +29,26 @@ Auto-Populated Fields:
     Use fetch_simulation() to get full Simulation object.
 
 Query Filtering:
-    Pass filters=None or filters={} to query() to return all simulations (no filtering).
-    Pass filters={'field': 'value'} to filter results.
+    Filters are applied server-side as exact string matches or pattern matches.
+    Pass filters=None or filters={} to return all simulations (~1300 total, <2s).
+    Pass filters={'field': 'value'} for exact match or filters={'field': 'in:text'} for contains.
+
+    Available filter fields:
+    - machine: str (e.g., 'ITER', 'JET', 'AUG')
+    - status: str (e.g., 'passed', 'pending', 'failed')
+    - alias: str (simulation ID, e.g., '131039/20' or 'in:131' for contains)
+    - code.name: str (e.g., 'METIS', 'ASTRA', 'in:METIS' for contains)
+    - uuid: str (exact UUID match)
+    - description: str (use 'in:keyword' for contains)
+
+    Filter operators:
+    - Exact match: {'machine': 'ITER'}
+    - Contains: {'code.name': 'in:METIS'} matches 'METIS', 'METIS4IMAS', etc.
+    - Multiple filters use AND logic: {'machine': 'ITER', 'status': 'passed'}
+
+    Performance note:
+    Database has ~1300 simulations. Fetching all records takes <2s.
+    Consider fetching all and filtering in Python for complex queries.
 
 HTTP Error Codes:
     - 401 Unauthorized: Invalid credentials (check SIMDB_USERNAME/PASSWORD)
@@ -42,20 +60,31 @@ Examples:
     >>> from nucleai.simdb import query
     >>> help(query)
 
-    >>> # Query ITER simulations (metadata auto-fetched)
-    >>> results = await query({'machine': 'ITER'}, limit=5)
-    >>> for sim in results:
-    ...     print(f"{sim.alias}: {sim.author_email}")
-    ...     print(f"Description: {sim.description[:80]}...")
+    >>> # Get all simulations (~1300 records, <2s)
+    >>> all_sims = await query()  # Defaults to limit=2000
+    >>> print(f"Total: {len(all_sims)}")
 
-    >>> # Search by code name (contains)
-    >>> results = await query({'code.name': 'in:METIS'}, limit=10)
+    >>> # Filter by machine (exact match)
+    >>> iter_sims = await query(filters={'machine': 'ITER'})
+    >>> print(f"ITER simulations: {len(iter_sims)}")
+
+    >>> # Filter by code name (contains)
+    >>> metis_sims = await query(filters={'code.name': 'in:METIS'})
+    >>> for sim in metis_sims[:3]:
+    ...     print(f"{sim.alias}: {sim.code.name}")
 
     >>> # Multiple filters (AND logic)
-    >>> results = await query({'machine': 'ITER', 'status': 'passed'})
-    >>>
-    >>> # No filters - get all simulations
-    >>> all_sims = await query(filters=None, limit=200)
+    >>> passed = await query(filters={'machine': 'ITER', 'status': 'passed'})
+
+    >>> # Find user's simulations (in-code filtering)
+    >>> all_sims = await query()
+    >>> user_sims = [s for s in all_sims if s.author_email and 'Florian' in s.author_email]
+    >>> if user_sims:
+    ...     latest = max(user_sims, key=lambda s: s.metadata.datetime or '')
+    ...     print(f"Latest: {latest.alias}")
+
+    >>> # Search in description
+    >>> baseline = await query(filters={'description': 'in:baseline'})
 """
 
 import os
@@ -410,22 +439,29 @@ class SimDBClient:
 
 async def query(
     filters: dict[str, str] | None = None,
-    limit: int = 10,
+    limit: int = 2000,
 ) -> list[SimulationSummary]:
     """Query SimDB for simulations matching filters.
 
-    Automatically fetches all fields defined in SimulationSummary model:
-    - author_email: Email of person who uploaded simulation - use to find user's work
-    - description: Detailed simulation description with scenario parameters
-    - datetime: Upload timestamp
-    - ids_types: Available IDS data types (e.g., ['core_profiles', 'equilibrium'])
-    - code: Code name, version, and description
-    - ids_properties: IDS file metadata (creation_date, version, homogeneous_time)
-    - All metadata fields defined in SimulationMetadata
+    Returns lightweight SimulationSummary objects with all metadata fields
+    populated. For complete simulation data (IMAS URI, input/output files),
+    use fetch_simulation().
+
+    Filter Syntax:
+        Exact match: {'machine': 'ITER'}
+        Contains: {'code.name': 'in:METIS'} - matches METIS, METIS4IMAS, etc.
+        Multiple: {'machine': 'ITER', 'status': 'passed'} - AND logic
+
+        Available fields: machine, status, alias, code.name, uuid, description
+
+    Performance:
+        Database has ~1300 total simulations.
+        Fetching all records takes <2 seconds.
+        Default limit=2000 fetches entire database.
 
     Args:
-        filters: Field-value pairs to filter by. Pass None or {} for no filtering.
-        limit: Maximum number of results
+        filters: Field filters as dict or None for all simulations
+        limit: Maximum number of results (default 2000, entire database)
 
     Returns:
         List of SimulationSummary objects with all fields populated
@@ -435,67 +471,37 @@ async def query(
         ConnectionError: If SimDB is unreachable
 
     Natural Language Query Patterns:
-        "Find simulations by user X"
-        >>> all_sims = await query(filters=None, limit=200)
-        >>> user_sims = [s for s in all_sims if s.author_email and 'Florian.Koechl' in s.author_email]
+        "Find Florian's latest simulation"
+        → all_sims = await query()  # Fetch all ~1300 sims
+        → user_sims = [s for s in all_sims if s.author_email and 'Florian' in s.author_email]
+        → latest = max(user_sims, key=lambda s: s.metadata.datetime or '')
 
-        "Show ITER simulations"
-        >>> results = await query({'machine': 'ITER'}, limit=50)
+        "Get ITER baseline scenarios"
+        → results = await query(filters={'machine': 'ITER', 'description': 'in:baseline'})
 
-        "What JINTRAC simulations are available?"
-        >>> results = await query({'code.name': 'in:JINTRAC'}, limit=50)
-
-        "Find passed simulations on ITER"
-        >>> results = await query({'machine': 'ITER', 'status': 'passed'})
-
-        "What data types are available for this simulation?"
-        >>> sim = results[0]
-        >>> print(sim.ids_types)  # ['core_profiles', 'equilibrium', ...]
-
-        "Get the latest simulation"
-        >>> all_sims = await query(filters=None, limit=100)
-        >>> latest = max(all_sims, key=lambda s: s.metadata.datetime or '')
-
-        "Find latest simulation by user X"
-        >>> all_sims = await query(filters=None, limit=200)
-        >>> user_sims = [s for s in all_sims if s.author_email and 'Florian.Koechl' in s.author_email]
-        >>> if user_sims:
-        ...     latest = user_sims[0]  # Already sorted by most recent
-        ...     complete = await fetch_simulation(latest.uuid)
-        ...     print(f"IMAS URI: {complete.imas_uri}")
+        "List simulations using METIS code"
+        → results = await query(filters={'code.name': 'in:METIS'})
 
     Examples:
-        >>> from nucleai.simdb import query, fetch_simulation
+        >>> # Get all simulations
+        >>> all_sims = await query()
+        >>> print(f"Total: {len(all_sims)}")
 
-        >>> # Query simulations (metadata auto-fetched)
-        >>> results = await query({'machine': 'ITER'}, limit=5)
-        >>> for sim in results:
-        ...     print(f"{sim.alias}: {sim.code.name} by {sim.author}")
-        ...     print(f"Description: {sim.description[:100]}...")
+        >>> # Filter by machine
+        >>> iter_sims = await query(filters={'machine': 'ITER'})
 
-        >>> # Find user's simulations
-        >>> all_sims = await query(filters=None, limit=200)
-        >>> florian_sims = [s for s in all_sims if s.author_email and 'Florian.Koechl' in s.author_email]
-        >>> if florian_sims:
-        ...     latest = florian_sims[0]
+        >>> # Find code names (contains match)
+        >>> metis = await query(filters={'code.name': 'in:METIS'})
+        >>> for sim in metis[:3]:
+        ...     print(f"{sim.alias}: {sim.code.name}")
+
+        >>> # Find user's latest simulation
+        >>> all_sims = await query()
+        >>> user_sims = [s for s in all_sims if s.author_email and 'Florian' in s.author_email]
+        >>> if user_sims:
+        ...     latest = max(user_sims, key=lambda s: s.metadata.datetime or '')
         ...     sim = await fetch_simulation(latest.uuid)
         ...     print(f"IMAS URI: {sim.imas_uri}")
-
-        >>> # Search by code name, then fetch complete details
-        >>> summaries = await query({'code.name': 'in:JINTRAC'}, limit=10)
-        >>> latest = max(summaries, key=lambda s: s.metadata.datetime or '')
-        >>> complete = await fetch_simulation(latest.uuid)
-        >>> if complete.imas_uri:
-        ...     print(f"IMAS: {complete.imas_uri}")
-
-        >>> # Multiple filters (AND logic)
-        >>> results = await query({
-        ...     'machine': 'ITER',
-        ...     'code.name': 'in:JINTRAC',
-        ...     'status': 'passed'
-        ... })
-        >>> latest = max(results, key=lambda s: s.metadata.datetime or '')
-        >>> print(f"Latest: {latest.alias} ({latest.metadata.datetime})")
     """
     client = SimDBClient()
     return await client.query(filters, limit)
@@ -572,14 +578,19 @@ async def fetch_simulation(simulation_id: str) -> Simulation:
         return Simulation.from_api_response(data)
 
 
-async def list_simulations(limit: int = 10) -> list[SimulationSummary]:
+async def list_simulations(limit: int = 2000) -> list[SimulationSummary]:
     """List recent simulations from SimDB.
 
+    Convenience function that returns all simulations without filtering.
+    Equivalent to query(filters=None, limit=limit).
+
+    Database has ~1300 total simulations, fetched in <2 seconds.
+
     Args:
-        limit: Maximum number of simulations to return
+        limit: Maximum number of results (default 2000, entire database)
 
     Returns:
-        List of recent SimulationSummary objects
+        List of SimulationSummary objects
 
     Raises:
         ConnectionError: If SimDB is unreachable
