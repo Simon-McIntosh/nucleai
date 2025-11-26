@@ -263,23 +263,26 @@ class SimulationSummary(pydantic.BaseModel):
     fast queries over large result sets. Use fetch_simulation() to get
     complete Simulation with file data and IMAS access.
 
+    All fields are automatically populated by query() and list_simulations().
+    Model schema = API contract: if a field is defined here, it's always fetched.
+
     Returned by:
         - query(): Search simulations with constraints
         - list_simulations(): List recent simulations
 
     Attributes:
         uuid: Unique simulation identifier (UUID format)
-        alias: Human-readable alias (e.g., "100001/2")
+        alias: Human-readable alias (e.g., "100001/2" or "koechlf/jetto/iter/53298/oct1118/seq-1")
         machine: Machine name (e.g., "ITER")
         code: Simulation code information
         description: Detailed simulation description
         status: Validation status (passed, failed, pending)
-        uploaded_by: Email address(es) of uploader (optional, varies by code)
+        uploaded_by: Email address(es) of uploader - always populated, filter by this to find user's simulations
         ids: Available IDS types (e.g., ['core_profiles', 'equilibrium'])
         metadata: Structured metadata (datetime, composition, etc.)
 
     Examples:
-        >>> from nucleai.simdb import query
+        >>> from nucleai.simdb import query, fetch_simulation
         >>>
         >>> # Query returns summaries (fast, lightweight)
         >>> summaries = await query({'machine': 'ITER'}, limit=100)
@@ -290,10 +293,16 @@ class SimulationSummary(pydantic.BaseModel):
         >>> print(summary.uploaded_by)
         >>> print(summary.metadata.datetime)
         >>>
+        >>> # Find user's simulations by email
+        >>> all_sims = await query({}, limit=200)
+        >>> user_sims = [s for s in all_sims if s.uploaded_by and 'Florian.Koechl' in s.uploaded_by]
+        >>> for sim in user_sims[:5]:
+        ...     print(f"{sim.alias}: {sim.code.name} ({sim.metadata.datetime})")
+        >>>
         >>> # Get complete simulation with IMAS URI
-        >>> from nucleai.simdb import fetch_simulation
-        >>> complete = await fetch_simulation(summary.uuid)
-        >>> print(complete.imas_uri)  # Now available
+        >>> if user_sims:
+        ...     complete = await fetch_simulation(user_sims[0].uuid)
+        ...     print(f"IMAS URI: {complete.imas_uri}")
     """
 
     uuid: str

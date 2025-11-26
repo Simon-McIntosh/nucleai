@@ -8,23 +8,25 @@ Classes:
     SimDBClient: Async client for SimDB REST API operations
 
 Functions:
-    query: Query simulations (returns summaries, auto-fetches metadata)
+    query: Query simulations (returns summaries with all fields populated)
     fetch_simulation: Get detailed simulation info by ID (returns complete Simulation)
     list_simulations: List recent simulations (returns summaries)
     discover_available_fields: Get all available fields from API
 
-Metadata:
-    Automatically fetched for all queries:
+Auto-Populated Fields:
+    All query() and list_simulations() results include:
+    - uploaded_by: Author email(s) - filter by this to find user's simulations
     - description: Detailed scenario description with parameters
-    - ids: List of available IDS types for data retrieval
-    - uploaded_by: Author email(s)
     - datetime: Upload timestamp
-    - ids_properties.creation_date: IDS file creation date
-    - ids_properties.version_put.data_dictionary: IDS schema version
-    - ids_properties.homogeneous_time: Time grid structure
+    - ids: List of available IDS types for data retrieval
+    - code: Code name, version, and description
+    - ids_properties: IDS file metadata (creation_date, version, homogeneous_time)
+    - metadata: All structured metadata fields
 
-    For additional data (physics parameters, time series):
-    Use IDS file download with simulation UUID (coming soon)
+    Model schema = API contract: all SimulationSummary fields are always populated.
+
+    For complete simulation data (IMAS URI, files):
+    Use fetch_simulation() to get full Simulation object.
 
 HTTP Error Codes:
     - 401 Unauthorized: Invalid credentials (check SIMDB_USERNAME/PASSWORD)
@@ -238,9 +240,14 @@ class SimDBClient:
         self,
         constraints: dict[str, str],
         limit: int = 10,
-        include_metadata: list[str] | None = None,
     ) -> list[SimulationSummary]:
         """Query SimDB for simulations matching constraints.
+
+        Automatically fetches all fields defined in SimulationSummary model:
+        - uploaded_by, description, ids, datetime
+        - code (name, version, description)
+        - ids_properties (creation_date, version, homogeneous_time)
+        - All metadata fields
 
         Args:
             constraints: Field-value pairs to filter by.
@@ -248,14 +255,9 @@ class SimDBClient:
                 Operators: 'eq:', 'in:', 'gt:', 'ge:', 'lt:', 'le:'
                 Example: {'machine': 'ITER', 'code.name': 'in:METIS'}
             limit: Maximum number of results to return
-            include_metadata: Metadata fields to include. If None, basic fields returned.
-                If provided, only requested fields are fetched.
-                Common fields: 'uploaded_by', 'description', 'code.name', 'code.version',
-                'ids_properties.comment', 'ids_properties.provider'
-                Example: ['uploaded_by', 'description', 'ids_properties.provider']
 
         Returns:
-            List of SimulationSummary objects parsed from JSON response
+            List of SimulationSummary objects with all fields populated
 
         Raises:
             AuthenticationError: If credentials are invalid (HTTP 401)
@@ -275,11 +277,10 @@ class SimDBClient:
             ...     'status': 'passed'
             ... }, limit=10)
             >>>
-            >>> # Request additional metadata fields
-            >>> results = await client.query(
-            ...     {'machine': 'ITER'},
-            ...     include_metadata=['uploaded_by', 'description', 'ids_properties.provider']
-            ... )
+            >>> # All fields automatically populated
+            >>> for sim in results:
+            ...     print(f"{sim.alias}: {sim.uploaded_by}")
+            ...     print(f"Description: {sim.description[:80]}...")
         """
         # Build query parameters from constraints
         params = {}
@@ -287,12 +288,21 @@ class SimDBClient:
             # API expects list values for params
             params[field] = [value]
 
-        # Build endpoint with metadata fields in query string
-        endpoint = "simulations"
-        if include_metadata:
-            # Metadata fields go in URL query string (no values)
-            metadata_query = "&".join(include_metadata)
-            endpoint = f"{endpoint}?{metadata_query}"
+        # Always fetch all fields defined in SimulationSummary model
+        metadata_fields = [
+            "description",
+            "ids",
+            "uploaded_by",
+            "datetime",
+            "code.name",
+            "code.version",
+            "code.description",
+            "ids_properties.creation_date",
+            "ids_properties.version_put.data_dictionary",
+            "ids_properties.homogeneous_time",
+        ]
+        metadata_query = "&".join(metadata_fields)
+        endpoint = f"simulations?{metadata_query}"
 
         # Build HTTP headers for pagination
         headers = {
@@ -390,33 +400,42 @@ async def query(
 ) -> list[SimulationSummary]:
     """Query SimDB for simulations matching constraints.
 
-    Automatically fetches metadata for all results:
+    Automatically fetches all fields defined in SimulationSummary model:
+    - uploaded_by: Author email(s) - filter by this to find user's simulations
     - description: Detailed simulation description with scenario parameters
-    - uploaded_by: Author email(s)
     - datetime: Upload timestamp
-    - code: Code name, version, and description
     - ids: List of available IDS types
+    - code: Code name, version, and description
     - ids_properties: IDS file metadata (creation_date, version, homogeneous_time)
+    - All metadata fields defined in SimulationMetadata
 
     Args:
         constraints: Field-value pairs to filter by
         limit: Maximum number of results
 
     Returns:
-        List of SimulationSummary objects with metadata populated
+        List of SimulationSummary objects with all fields populated
 
     Raises:
         AuthenticationError: If credentials are invalid
         ConnectionError: If SimDB is unreachable
 
     Examples:
-        >>> from nucleai.simdb import query
+        >>> from nucleai.simdb import query, fetch_simulation
 
         >>> # Query simulations (metadata auto-fetched)
         >>> results = await query({'machine': 'ITER'}, limit=5)
         >>> for sim in results:
         ...     print(f"{sim.alias}: {sim.code.name} by {sim.uploaded_by}")
         ...     print(f"Description: {sim.description[:100]}...")
+
+        >>> # Find user's simulations (filter by uploaded_by)
+        >>> all_sims = await query({}, limit=200)
+        >>> florian_sims = [s for s in all_sims if s.uploaded_by and 'Florian.Koechl' in s.uploaded_by]
+        >>> if florian_sims:
+        ...     latest = florian_sims[0]
+        ...     sim = await fetch_simulation(latest.uuid)
+        ...     print(f"IMAS URI: {sim.imas_uri}")
 
         >>> # Search by code name, then fetch complete details
         >>> summaries = await query({'code.name': 'in:JINTRAC'}, limit=10)
@@ -434,22 +453,8 @@ async def query(
         >>> latest = max(results, key=lambda s: s.metadata.datetime or '')
         >>> print(f"Latest: {latest.alias} ({latest.metadata.datetime})")
     """
-    # Always fetch important metadata fields
-    metadata_fields = [
-        "description",
-        "ids",
-        "uploaded_by",
-        "datetime",
-        "code.name",
-        "code.version",
-        "code.description",
-        "ids_properties.creation_date",
-        "ids_properties.version_put.data_dictionary",
-        "ids_properties.homogeneous_time",
-    ]
-
     client = SimDBClient()
-    return await client.query(constraints, limit, metadata_fields)
+    return await client.query(constraints, limit)
 
 
 async def fetch_simulation(simulation_id: str) -> Simulation:
