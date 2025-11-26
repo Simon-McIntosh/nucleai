@@ -428,7 +428,7 @@ print(get_docstring(nucleai.simdb.query))  # Get usage examples
 
 # 4. Copy example from docstring and adapt
 results = await nucleai.simdb.query(
-    constraints={'machine': 'ITER', 'status': 'passed'},
+    filters={'machine': 'ITER', 'status': 'passed'},
     limit=10
 )
 

@@ -379,7 +379,7 @@ class TestSimulationValidators:
     """Tests for Simulation model validators and transformations."""
 
     def test_parse_ids_string_with_brackets(self):
-        """Test parsing ids field from string with brackets."""
+        """Test parsing ids_types field from string with brackets."""
         sim = Simulation(
             uuid="123e4567-e89b-12d3-a456-426614174000",
             alias="test/1",
@@ -387,13 +387,13 @@ class TestSimulationValidators:
             code=CodeInfo(name="TEST"),
             description="Test",
             status="passed",
-            ids="[core_profiles, equilibrium, summary]",
+            ids_types="[core_profiles, equilibrium, summary]",
         )
 
-        assert sim.ids == ["core_profiles", "equilibrium", "summary"]
+        assert sim.ids_types == ["core_profiles", "equilibrium", "summary"]
 
     def test_parse_ids_string_without_brackets(self):
-        """Test parsing ids field from string without brackets."""
+        """Test parsing ids_types field from string without brackets."""
         sim = Simulation(
             uuid="123e4567-e89b-12d3-a456-426614174000",
             alias="test/1",
@@ -401,13 +401,13 @@ class TestSimulationValidators:
             code=CodeInfo(name="TEST"),
             description="Test",
             status="passed",
-            ids="core_profiles, equilibrium",
+            ids_types="core_profiles, equilibrium",
         )
 
-        assert sim.ids == ["core_profiles", "equilibrium"]
+        assert sim.ids_types == ["core_profiles", "equilibrium"]
 
     def test_parse_ids_empty_string(self):
-        """Test parsing empty ids string."""
+        """Test parsing empty ids_types string."""
         sim = Simulation(
             uuid="123e4567-e89b-12d3-a456-426614174000",
             alias="test/1",
@@ -415,13 +415,13 @@ class TestSimulationValidators:
             code=CodeInfo(name="TEST"),
             description="Test",
             status="passed",
-            ids="[]",
+            ids_types="[]",
         )
 
-        assert sim.ids is None
+        assert sim.ids_types is None
 
     def test_parse_ids_list(self):
-        """Test that ids list is passed through unchanged."""
+        """Test that ids_types list is passed through unchanged."""
         sim = Simulation(
             uuid="123e4567-e89b-12d3-a456-426614174000",
             alias="test/1",
@@ -429,10 +429,10 @@ class TestSimulationValidators:
             code=CodeInfo(name="TEST"),
             description="Test",
             status="passed",
-            ids=["core_profiles", "equilibrium"],
+            ids_types=["core_profiles", "equilibrium"],
         )
 
-        assert sim.ids == ["core_profiles", "equilibrium"]
+        assert sim.ids_types == ["core_profiles", "equilibrium"]
 
     def test_parse_uuid_from_dict(self):
         """Test parsing UUID from API dict format."""
@@ -484,7 +484,7 @@ class TestSimulationValidators:
         assert sim.code.version == "6.1894"
         assert sim.status == "passed"
         assert sim.description == "Test simulation"
-        assert sim.ids == ["core_profiles", "equilibrium"]
+        assert sim.ids_types == ["core_profiles", "equilibrium"]
 
     def test_transform_api_response_with_outputs(self):
         """Test API response transformation with outputs."""

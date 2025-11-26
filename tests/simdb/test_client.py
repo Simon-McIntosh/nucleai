@@ -207,8 +207,8 @@ class TestSimDBClientAuthentication:
 class TestSimDBClientQuery:
     """Tests for SimDBClient.query method."""
 
-    async def test_query_with_constraints(self, mock_settings, mocker):
-        """Test querying with constraints."""
+    async def test_query_with_filters(self, mock_settings, mocker):
+        """Test querying with filters."""
         # Mock HTTP response
         mock_response_data = {
             "results": [

@@ -36,9 +36,9 @@ sim.model_extra['datetime']  # "2025-08-11T13:46:25.682813" (always in metadata 
 
 #### Reliably Filled (MUST request via include_metadata) ✅
 ```python
-# Request: include_metadata=['uploaded_by']
-sim.uploaded_by    # "Mireille.Schneider@iter.org" (100% METIS/JINTRAC/ASTRA, 0% SOLPS)
-# Note: Extracted from metadata array by model validator
+# Request: include_metadata=['uploaded_by']  # API field name
+sim.author_email    # "Mireille.Schneider@iter.org" (100% METIS/JINTRAC/ASTRA, 0% SOLPS)
+# Note: API returns 'uploaded_by', exposed as 'author_email' in model
 ```
 
 #### Commonly Filled (request via include_metadata, 14-100% population) ⚠️
@@ -62,7 +62,7 @@ sim.model_extra['code.description']  # 0%
 1. Core fields (always present)
 2. Explicitly requested via `include_metadata` parameter
 
-This explains the "0% to 100% jump" - `uploaded_by` is 0% when NOT requested, 100% when requested.
+This explains the "0% to 100% jump" - `author_email` (API field: `uploaded_by`) is 0% when NOT requested, 100% when requested.
 
 ### 3. Scalar Data Fields (Physics Parameters, NOT Metadata) ⚠️
 

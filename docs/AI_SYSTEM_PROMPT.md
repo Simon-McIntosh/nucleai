@@ -41,7 +41,7 @@ help(nucleai.simdb.query)
 
 # Step 3: Adapt to user's needs
 results = await nucleai.simdb.query(
-    constraints={'machine': 'ITER'},
+    filters={'machine': 'ITER'},
     limit=10
 )
 ```
@@ -137,7 +137,7 @@ Then show the user the relevant parts and provide adapted code:
 ```python
 # Query ITER simulations that have passed validation
 results = await nucleai.simdb.query(
-    constraints={'machine': 'ITER', 'status': 'passed'},
+    filters={'machine': 'ITER', 'status': 'passed'},
     limit=10
 )
 

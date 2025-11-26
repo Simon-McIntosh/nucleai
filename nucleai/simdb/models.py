@@ -36,6 +36,7 @@ from typing import Literal
 from urllib.parse import parse_qs, urlparse
 
 import pydantic
+from pydantic import Field
 
 from nucleai.simdb.metadata import SimulationMetadata
 
@@ -267,18 +268,18 @@ class SimulationSummary(pydantic.BaseModel):
     Model schema = API contract: if a field is defined here, it's always fetched.
 
     Returned by:
-        - query(): Search simulations with constraints
+        - query(): Search simulations with filters
         - list_simulations(): List recent simulations
 
     Attributes:
         uuid: Unique simulation identifier (UUID format)
-        alias: Human-readable alias (e.g., "100001/2" or "koechlf/jetto/iter/53298/oct1118/seq-1")
-        machine: Machine name (e.g., "ITER")
+        alias: Human-readable simulation identifier (e.g., "100001/2" or "koechlf/jetto/iter/53298/oct1118/seq-1")
+        machine: Tokamak device name (e.g., "ITER", "JET")
         code: Simulation code information
         description: Detailed simulation description
         status: Validation status (passed, failed, pending)
-        uploaded_by: Email address(es) of uploader - always populated, filter by this to find user's simulations
-        ids: Available IDS types (e.g., ['core_profiles', 'equilibrium'])
+        author_email: Email address(es) of uploader (e.g., 'Xavier.Bonnin@iter.org'). Use to filter simulations by user.
+        ids_types: Available IDS data types (e.g., ['core_profiles', 'equilibrium']). Check this to see what physics data exists.
         metadata: Structured metadata (datetime, composition, etc.)
 
     Examples:
@@ -290,12 +291,12 @@ class SimulationSummary(pydantic.BaseModel):
         >>>
         >>> # Access metadata
         >>> print(summary.alias, summary.code.name)
-        >>> print(summary.uploaded_by)
+        >>> print(summary.author)
         >>> print(summary.metadata.datetime)
         >>>
         >>> # Find user's simulations by email
-        >>> all_sims = await query({}, limit=200)
-        >>> user_sims = [s for s in all_sims if s.uploaded_by and 'Florian.Koechl' in s.uploaded_by]
+        >>> all_sims = await query(filters=None, limit=200)
+        >>> user_sims = [s for s in all_sims if s.author_email and 'Florian.Koechl' in s.author_email]
         >>> for sim in user_sims[:5]:
         ...     print(f"{sim.alias}: {sim.code.name} ({sim.metadata.datetime})")
         >>>
@@ -305,20 +306,32 @@ class SimulationSummary(pydantic.BaseModel):
         ...     print(f"IMAS URI: {complete.imas_uri}")
     """
 
-    uuid: str
-    alias: str
-    machine: str
-    code: CodeInfo
-    description: str
-    status: Literal["passed", "failed", "pending"]
-    uploaded_by: str | None = None
-    ids: list[str] | None = None
-    metadata: SimulationMetadata | None = None
+    uuid: str = pydantic.Field(description="Unique simulation identifier (UUID format)")
+    alias: str = pydantic.Field(
+        description="Human-readable simulation identifier (e.g., '100001/2' or 'koechlf/jetto/iter/53298/oct1118/seq-1')"
+    )
+    machine: str = pydantic.Field(description="Tokamak device name (e.g., 'ITER', 'JET')")
+    code: CodeInfo = pydantic.Field(description="Simulation code information (name, version)")
+    description: str = pydantic.Field(description="Detailed simulation description")
+    status: Literal["passed", "failed", "pending"] = pydantic.Field(
+        description="Validation status of simulation"
+    )
+    author_email: str | None = Field(
+        None,
+        description="Email address of person who uploaded simulation (e.g., 'Xavier.Bonnin@iter.org'). May be comma-separated for multiple authors. Use to filter simulations by user.",
+    )
+    ids_types: list[str] | None = pydantic.Field(
+        None,
+        description="Available IDS data types (e.g., ['core_profiles', 'equilibrium']). Check this to see what physics data exists.",
+    )
+    metadata: SimulationMetadata | None = pydantic.Field(
+        None, description="Structured metadata (datetime, composition, etc.)"
+    )
 
-    @pydantic.field_validator("ids", mode="before")
+    @pydantic.field_validator("ids_types", mode="before")
     @classmethod
     def parse_ids_string(cls, value):
-        """Parse ids field from string representation to list.
+        """Parse ids_types field from string representation to list.
 
         API returns ids as string like '[core_profiles, equilibrium]'.
         Convert to proper list of strings.
@@ -392,10 +405,16 @@ class SimulationSummary(pydantic.BaseModel):
                 code_info["version"] = metadata_dict["code.version"]
             transformed["code"] = code_info
 
-        # Map simple optional fields
-        for field in ["status", "description", "uploaded_by", "ids"]:
-            if field in metadata_dict:
-                transformed[field] = metadata_dict[field]
+        # Map simple optional fields (API field name → model field name)
+        field_mapping = {
+            "status": "status",
+            "description": "description",
+            "uploaded_by": "author_email",  # API returns 'uploaded_by', we expose as 'author_email'
+            "ids": "ids_types",  # API returns 'ids', we expose as 'ids_types' for clarity
+        }
+        for api_field, model_field in field_mapping.items():
+            if api_field in metadata_dict:
+                transformed[model_field] = metadata_dict[api_field]
 
         # Parse structured metadata
         transformed["metadata"] = SimulationMetadata.from_metadata_dict(metadata_dict)
