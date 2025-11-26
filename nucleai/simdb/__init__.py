@@ -92,19 +92,20 @@ Examples:
 from nucleai.simdb.client import (
     SimDBClient,
     discover_available_fields,
-    get_simulation,
+    fetch_simulation,
     list_simulations,
     query,
 )
-from nucleai.simdb.models import CodeInfo, QueryConstraint, Simulation
+from nucleai.simdb.models import CodeInfo, QueryConstraint, Simulation, SimulationSummary
 
 __all__ = [
     "SimDBClient",
     "query",
-    "get_simulation",
+    "fetch_simulation",
     "list_simulations",
     "discover_available_fields",
     "Simulation",
+    "SimulationSummary",
     "CodeInfo",
     "QueryConstraint",
 ]

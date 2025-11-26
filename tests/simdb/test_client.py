@@ -7,8 +7,8 @@ import httpx
 import pytest
 
 from nucleai.core.exceptions import AuthenticationError
-from nucleai.simdb.client import SimDBClient, get_simulation, list_simulations, query
-from nucleai.simdb.models import Simulation
+from nucleai.simdb.client import SimDBClient, fetch_simulation, list_simulations, query
+from nucleai.simdb.models import Simulation, SimulationSummary
 
 
 @pytest.fixture
@@ -238,7 +238,7 @@ class TestSimDBClientQuery:
         results = await client.query({"machine": "ITER"}, limit=10)
 
         assert len(results) == 1
-        assert isinstance(results[0], Simulation)
+        assert isinstance(results[0], SimulationSummary)
         assert results[0].machine == "ITER"
 
     async def test_query_with_persistent_client(self, mock_settings, mocker):
@@ -313,9 +313,9 @@ class TestSimDBClientQuery:
 
 
 class TestSimDBClientGetSimulation:
-    """Tests for get_simulation function."""
+    """Tests for fetch_simulation function."""
 
-    async def test_get_simulation_by_id(self, mock_settings, mocker):
+    async def test_fetch_simulation_by_id(self, mock_settings, mocker):
         """Test getting simulation by ID."""
         sim_data = {
             "uuid": {"hex": "abc123"},
@@ -337,7 +337,7 @@ class TestSimDBClientGetSimulation:
         mocker.patch.object(SimDBClient, "_detect_api_version", return_value="v1.2")
         mocker.patch.object(SimDBClient, "_make_request", return_value=mock_response)
 
-        result = await get_simulation("abc123")
+        result = await fetch_simulation("abc123")
 
         assert isinstance(result, Simulation)
         assert result.uuid == "abc123"
@@ -377,7 +377,7 @@ class TestSimDBClientListSimulations:
         results = await list_simulations(limit=5)
 
         assert len(results) == 5
-        assert all(isinstance(s, Simulation) for s in results)
+        assert all(isinstance(s, SimulationSummary) for s in results)
 
 
 class TestSimDBClientAPIVersion:

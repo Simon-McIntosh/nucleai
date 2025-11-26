@@ -8,9 +8,9 @@ Classes:
     SimDBClient: Async client for SimDB REST API operations
 
 Functions:
-    query: Query simulations (auto-fetches metadata)
-    get_simulation: Get detailed simulation info by ID
-    list_simulations: List recent simulations
+    query: Query simulations (returns summaries, auto-fetches metadata)
+    fetch_simulation: Get detailed simulation info by ID (returns complete Simulation)
+    list_simulations: List recent simulations (returns summaries)
     discover_available_fields: Get all available fields from API
 
 Metadata:
@@ -60,7 +60,7 @@ import httpx
 from nucleai.core.config import get_settings
 from nucleai.core.exceptions import AuthenticationError, ConnectionError
 from nucleai.simdb.auth import get_credentials
-from nucleai.simdb.models import Simulation
+from nucleai.simdb.models import Simulation, SimulationSummary
 
 
 class SimDBClient:
@@ -239,7 +239,7 @@ class SimDBClient:
         constraints: dict[str, str],
         limit: int = 10,
         include_metadata: list[str] | None = None,
-    ) -> list[Simulation]:
+    ) -> list[SimulationSummary]:
         """Query SimDB for simulations matching constraints.
 
         Args:
@@ -255,7 +255,7 @@ class SimDBClient:
                 Example: ['uploaded_by', 'description', 'ids_properties.provider']
 
         Returns:
-            List of Simulation objects parsed from JSON response
+            List of SimulationSummary objects parsed from JSON response
 
         Raises:
             AuthenticationError: If credentials are invalid (HTTP 401)
@@ -315,10 +315,10 @@ class SimDBClient:
             ) as client:
                 response = await self._make_request(client, endpoint, params, headers)
 
-        # Parse JSON response to Simulation objects
+        # Parse JSON response to SimulationSummary objects
         data = response.json()
         results = data.get("results", [])
-        simulations = [Simulation.from_api_response(sim_data) for sim_data in results]
+        simulations = [SimulationSummary.from_api_response(sim_data) for sim_data in results]
 
         # SimDB API returns one more result than requested - slice to exact limit
         return simulations[:limit]
@@ -387,13 +387,15 @@ class SimDBClient:
 async def query(
     constraints: dict[str, str],
     limit: int = 10,
-) -> list[Simulation]:
+) -> list[SimulationSummary]:
     """Query SimDB for simulations matching constraints.
 
     Automatically fetches metadata for all results:
     - description: Detailed simulation description with scenario parameters
     - uploaded_by: Author email(s)
     - datetime: Upload timestamp
+    - code: Code name, version, and description
+    - ids: List of available IDS types
     - ids_properties: IDS file metadata (creation_date, version, homogeneous_time)
 
     Args:
@@ -401,7 +403,7 @@ async def query(
         limit: Maximum number of results
 
     Returns:
-        List of Simulation objects with metadata populated
+        List of SimulationSummary objects with metadata populated
 
     Raises:
         AuthenticationError: If credentials are invalid
@@ -413,16 +415,24 @@ async def query(
         >>> # Query simulations (metadata auto-fetched)
         >>> results = await query({'machine': 'ITER'}, limit=5)
         >>> for sim in results:
-        ...     print(f"{sim.alias}: {sim.uploaded_by}")
+        ...     print(f"{sim.alias}: {sim.code.name} by {sim.uploaded_by}")
         ...     print(f"Description: {sim.description[:100]}...")
 
-        >>> # Search by code
-        >>> results = await query({'code.name': 'in:METIS'}, limit=10)
-        >>> for sim in results:
-        ...     print(f"{sim.alias}: {sim.code.name}")
+        >>> # Search by code name, then fetch complete details
+        >>> summaries = await query({'code.name': 'in:JINTRAC'}, limit=10)
+        >>> latest = max(summaries, key=lambda s: s.metadata.datetime or '')
+        >>> complete = await fetch_simulation(latest.uuid)
+        >>> if complete.imas_uri:
+        ...     print(f"IMAS: {complete.imas_uri}")
 
         >>> # Multiple constraints (AND logic)
-        >>> results = await query({'machine': 'ITER', 'status': 'passed'})
+        >>> results = await query({
+        ...     'machine': 'ITER',
+        ...     'code.name': 'in:JINTRAC',
+        ...     'status': 'passed'
+        ... })
+        >>> latest = max(results, key=lambda s: s.metadata.datetime or '')
+        >>> print(f"Latest: {latest.alias} ({latest.metadata.datetime})")
     """
     # Always fetch important metadata fields
     metadata_fields = [
@@ -430,6 +440,9 @@ async def query(
         "ids",
         "uploaded_by",
         "datetime",
+        "code.name",
+        "code.version",
+        "code.description",
         "ids_properties.creation_date",
         "ids_properties.version_put.data_dictionary",
         "ids_properties.homogeneous_time",
@@ -439,11 +452,15 @@ async def query(
     return await client.query(constraints, limit, metadata_fields)
 
 
-async def get_simulation(simulation_id: str) -> Simulation:
+async def fetch_simulation(simulation_id: str) -> Simulation:
     """Get detailed simulation information by ID.
 
-    Fetches full simulation details including inputs/outputs with IMAS URIs.
-    Use this to get the IMAS URI for loading IDS data with imas-python.
+    Fetches full simulation details including inputs/outputs with IMAS URIs
+    and all simulation artifact files. Returns complete information with:
+    - Basic metadata (alias, code, description, status)
+    - IMAS URI (sim.imas_uri) for direct access
+    - All data objects (sim.outputs, sim.inputs) with checksums
+    - Structured metadata (datetime, composition, etc.)
 
     Args:
         simulation_id: Simulation UUID or alias
@@ -456,19 +473,35 @@ async def get_simulation(simulation_id: str) -> Simulation:
         AuthenticationError: If credentials are invalid
 
     Examples:
-        >>> from nucleai.simdb import get_simulation
+        >>> from nucleai.simdb import fetch_simulation
         >>> import imas
         >>>
-        >>> # Get simulation with IMAS URI
-        >>> sim = await get_simulation("100001/2")
-        >>> print(sim.imas_uri)
-        imas://uda.iter.org/uda?path=/work/imas/shared/imasdb/ITER/3/100001/2&backend=hdf5
+        >>> # Get simulation with IMAS data
+        >>> sim = await fetch_simulation("koechlf/jetto/iter/53298/oct1118/seq-1")
+        >>> print(f"Code: {sim.code.name} v{sim.code.version}")
+        >>> print(f"Status: {sim.status}")
+        >>> print(f"Uploaded: {sim.metadata.datetime}")
         >>>
-        >>> # Load IDS data
+        >>> # Simple IMAS access
         >>> if sim.imas_uri:
+        ...     print(f"IMAS URI: {sim.imas_uri}")
         ...     with imas.DBEntry(sim.imas_uri, "r") as entry:
-        ...         equilibrium = entry.get("equilibrium", lazy=True)
+        ...         equilibrium = entry.get("equilibrium")
         ...         print(f"Time points: {len(equilibrium.time)}")
+        >>>
+        >>> # Rich IMAS access (parsed structure)
+        >>> if sim.imas:
+        ...     uri = sim.imas.uri
+        ...     print(f"Backend: {uri.backend}")
+        ...     print(f"Server: {uri.server}")
+        ...     print(f"Remote: {uri.is_remote}")
+        >>>
+        >>> # Access all simulation files
+        >>> print(f"Total outputs: {len(sim.outputs)}")
+        >>> for obj in sim.outputs:
+        ...     if obj.type == 'FILE':
+        ...         filename = obj.uri.split('/')[-1]
+        ...         print(f"  {filename}: {obj.checksum[:8]}...")
     """
     client = SimDBClient()
     cookies = await client._get_cookies()
@@ -490,14 +523,14 @@ async def get_simulation(simulation_id: str) -> Simulation:
         return Simulation.from_api_response(data)
 
 
-async def list_simulations(limit: int = 10) -> list[Simulation]:
+async def list_simulations(limit: int = 10) -> list[SimulationSummary]:
     """List recent simulations from SimDB.
 
     Args:
         limit: Maximum number of simulations to return
 
     Returns:
-        List of recent Simulation objects
+        List of recent SimulationSummary objects
 
     Raises:
         ConnectionError: If SimDB is unreachable

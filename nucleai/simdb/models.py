@@ -256,12 +256,16 @@ class CodeInfo(pydantic.BaseModel):
     version: str | None = None
 
 
-class Simulation(pydantic.BaseModel):
-    """ITER SimDB simulation metadata.
+class SimulationSummary(pydantic.BaseModel):
+    """Lightweight simulation from query() - for search and filtering.
 
-    Single model for both query results and detailed info. Basic fields
-    (uuid, alias, machine, code, description, status) always present.
-    Extended fields (uploaded_by, ids, metadata) auto-fetched by query().
+    Contains core metadata without file lists or IMAS URI. Optimized for
+    fast queries over large result sets. Use fetch_simulation() to get
+    complete Simulation with file data and IMAS access.
+
+    Returned by:
+        - query(): Search simulations with constraints
+        - list_simulations(): List recent simulations
 
     Attributes:
         uuid: Unique simulation identifier (UUID format)
@@ -272,25 +276,24 @@ class Simulation(pydantic.BaseModel):
         status: Validation status (passed, failed, pending)
         uploaded_by: Email address(es) of uploader (optional, varies by code)
         ids: Available IDS types (e.g., ['core_profiles', 'equilibrium'])
-        metadata: Structured metadata (access via sim.metadata.datetime, etc.)
+        metadata: Structured metadata (datetime, composition, etc.)
 
     Examples:
         >>> from nucleai.simdb import query
         >>>
-        >>> # Query returns Simulation with metadata auto-fetched
-        >>> results = await query({'machine': 'ITER'}, limit=5)
-        >>> sim = results[0]
+        >>> # Query returns summaries (fast, lightweight)
+        >>> summaries = await query({'machine': 'ITER'}, limit=100)
+        >>> summary = summaries[0]
         >>>
-        >>> # Access basic fields (always present)
-        >>> print(sim.uuid, sim.alias, sim.machine)
-        >>> print(sim.code.name, sim.code.version)
-        >>> print(sim.description[:100])  # Often long text
+        >>> # Access metadata
+        >>> print(summary.alias, summary.code.name)
+        >>> print(summary.uploaded_by)
+        >>> print(summary.metadata.datetime)
         >>>
-        >>> # Access metadata (auto-fetched)
-        >>> print(sim.uploaded_by)  # May be None for some codes
-        >>> print(sim.ids)  # List of IDS types
-        >>> print(sim.metadata.datetime)  # Upload timestamp
-        >>> print(sim.metadata.composition.deuterium)  # If available
+        >>> # Get complete simulation with IMAS URI
+        >>> from nucleai.simdb import fetch_simulation
+        >>> complete = await fetch_simulation(summary.uuid)
+        >>> print(complete.imas_uri)  # Now available
     """
 
     uuid: str
@@ -302,40 +305,6 @@ class Simulation(pydantic.BaseModel):
     uploaded_by: str | None = None
     ids: list[str] | None = None
     metadata: SimulationMetadata | None = None
-    inputs: list[DataObject] | None = None
-    outputs: list[DataObject] | None = None
-
-    @property
-    def imas(self) -> ImasDataCollection:
-        """IMAS data URIs with structured access.
-
-        Returns a collection containing parsed IMAS URIs for both inputs and outputs.
-        Most simulations have exactly one output URI.
-
-        Returns:
-            ImasDataCollection with parsed URIs
-
-        Examples:
-            >>> sim = await get_simulation("100001/2")
-            >>>
-            >>> # Get the main URI
-            >>> if sim.imas:
-            ...     uri = sim.imas.uri
-            ...     print(f"Backend: {uri.backend}")
-            ...     with imas.DBEntry(str(uri), "r") as entry:
-            ...         equilibrium = entry.get("equilibrium", lazy=True)
-            >>>
-            >>> # Access all outputs
-            >>> for uri in sim.imas.outputs:
-            ...     print(f"{uri.backend}: {uri.path}")
-            >>>
-            >>> # Check if remote
-            >>> if sim.imas.uri and sim.imas.uri.is_remote:
-            ...     print(f"Server: {sim.imas.uri.server}")
-        """
-        inputs = [ImasUri.parse(obj.uri) for obj in (self.inputs or []) if obj.type == "IMAS"]
-        outputs = [ImasUri.parse(obj.uri) for obj in (self.outputs or []) if obj.type == "IMAS"]
-        return ImasDataCollection(inputs=inputs, outputs=outputs)
 
     @pydantic.field_validator("ids", mode="before")
     @classmethod
@@ -422,10 +391,9 @@ class Simulation(pydantic.BaseModel):
         # Parse structured metadata
         transformed["metadata"] = SimulationMetadata.from_metadata_dict(metadata_dict)
 
-        # Parse inputs/outputs if present (from per-simulation endpoint)
+        # Preserve inputs/outputs if present (for Simulation subclass)
         if "inputs" in data:
             transformed["inputs"] = data["inputs"]
-
         if "outputs" in data:
             transformed["outputs"] = data["outputs"]
 
@@ -440,6 +408,151 @@ class Simulation(pydantic.BaseModel):
             transformed["status"] = "pending"
 
         return transformed
+
+    @classmethod
+    def from_api_response(cls, data: dict) -> "SimulationSummary":
+        """Create SimulationSummary from SimDB REST API JSON response.
+
+        Handles API field mapping and nested structures. The API returns:
+        - uuid as {"_type": "uuid.UUID", "hex": "..."}
+        - metadata as array: [{"element": "field", "value": "val"}, ...]
+
+        Transforms this into the SimulationSummary model schema using Pydantic validators.
+
+        Args:
+            data: JSON dict from SimDB REST API
+
+        Returns:
+            SimulationSummary instance with validated fields
+
+        Examples:
+            >>> api_json = {
+            ...     "uuid": {"_type": "uuid.UUID", "hex": "abc123"},
+            ...     "alias": "100001/2",
+            ...     "metadata": [
+            ...         {"element": "machine", "value": "ITER"},
+            ...         {"element": "code.name", "value": "METIS"}
+            ...     ]
+            ... }
+            >>> sim = SimulationSummary.from_api_response(api_json)
+            >>> print(sim.alias)
+            100001/2
+        """
+        # Let Pydantic validators handle transformation
+        return cls.model_validate(data)
+
+
+class Simulation(SimulationSummary):
+    """Complete simulation from fetch_simulation() - full details with files.
+
+    Extends SimulationSummary with file data and IMAS URI. All file-related
+    fields are guaranteed present (never None). Use for accessing IDS data,
+    verifying checksums, or downloading simulation artifacts.
+
+    Returned by:
+        - fetch_simulation(): Get complete details by UUID/alias
+
+    Attributes (in addition to SimulationSummary):
+        imas_uri: Primary IMAS data URI (empty string if no IMAS data exists)
+        inputs: All input data objects (FILE + IMAS) with checksums and timestamps
+        outputs: All output data objects (FILE + IMAS) with checksums and timestamps
+
+    Data Access Patterns:
+        1. Simple IMAS access (most common):
+            >>> sim.imas_uri  # Direct URI string
+            'imas://uda.iter.org/uda?path=/work/imas/...&backend=hdf5'
+            >>>
+            >>> # Use with imas-python
+            >>> import imas
+            >>> with imas.DBEntry(sim.imas_uri, "r") as entry:
+            ...     equilibrium = entry.get("equilibrium")
+
+        2. Rich IMAS access (parsed structure):
+            >>> sim.imas.uri.backend  # 'hdf5'
+            >>> sim.imas.uri.server   # 'uda.iter.org'
+            >>> sim.imas.uri.path     # File system path
+            >>> sim.imas.outputs      # List of all IMAS URIs
+
+        3. Complete file access (all simulation artifacts):
+            >>> for obj in sim.outputs:
+            ...     print(f"{obj.type}: {obj.uri}")
+            ...     print(f"  Checksum: {obj.checksum}")
+            ...     print(f"  Uploaded: {obj.datetime}")
+            FILE: file://.../jetto.in
+            FILE: file://.../jetto.out
+            IMAS: imas://uda.iter.org/uda?path=...
+
+    Examples:
+        >>> from nucleai.simdb import query, fetch_simulation
+        >>>
+        >>> # Step 1: Fast search (returns summaries)
+        >>> summaries = await query({'code.name': 'in:JINTRAC'}, limit=100)
+        >>> latest = max(summaries, key=lambda s: s.metadata.datetime or '')
+        >>>
+        >>> # Step 2: Get complete details
+        >>> sim = await fetch_simulation(latest.uuid)
+        >>>
+        >>> # Now access IMAS data
+        >>> if sim.imas_uri:
+        ...     import imas
+        ...     with imas.DBEntry(sim.imas_uri, "r") as entry:
+        ...         core_profiles = entry.get("core_profiles")
+        >>>
+        >>> # Access all files
+        >>> print(f"Total outputs: {len(sim.outputs)}")
+        >>> files = [o for o in sim.outputs if o.type == 'FILE']
+        >>> print(f"Simulation artifact files: {len(files)}")
+    """
+
+    imas_uri: str = ""
+    inputs: list[DataObject] = []
+    outputs: list[DataObject] = []
+
+    @pydantic.model_validator(mode="after")
+    def extract_imas_uri(self) -> "Simulation":
+        """Extract primary IMAS URI from outputs for schema visibility.
+
+        Extracts the first IMAS URI from outputs list and stores in imas_uri field.
+        This provides direct access while preserving complete outputs list.
+        """
+        if not self.imas_uri and self.outputs:
+            for obj in self.outputs:
+                if obj.type == "IMAS":
+                    self.imas_uri = obj.uri
+                    break
+        return self
+
+    @property
+    def imas(self) -> ImasDataCollection:
+        """IMAS data URIs with structured access.
+
+        Returns a collection containing parsed IMAS URIs for both inputs and outputs.
+        Most simulations have exactly one output URI.
+
+        Returns:
+            ImasDataCollection with parsed URIs
+
+        Examples:
+            >>> sim = await get_simulation("100001/2")
+            >>>
+            >>> # Get the main URI
+            >>> if sim.imas:
+            ...     uri = sim.imas.uri
+            ...     print(f"Backend: {uri.backend}")
+            ...     with imas.DBEntry(str(uri), "r") as entry:
+            ...         equilibrium = entry.get("equilibrium", lazy=True)
+            >>>
+            >>> # Access all outputs
+            >>> for uri in sim.imas.outputs:
+            ...     print(f"{uri.backend}: {uri.path}")
+            >>>
+            >>> # Check if remote
+            >>> if sim.imas.uri and sim.imas.uri.is_remote:
+            ...     print(f"Server: {sim.imas.uri.server}")
+        """
+        inputs = [ImasUri.parse(obj.uri) for obj in (self.inputs or []) if obj.type == "IMAS"]
+        outputs = [ImasUri.parse(obj.uri) for obj in (self.outputs or []) if obj.type == "IMAS"]
+        return ImasDataCollection(inputs=inputs, outputs=outputs)
 
     @classmethod
     def from_api_response(cls, data: dict) -> "Simulation":
