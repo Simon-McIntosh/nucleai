@@ -6,38 +6,36 @@ for validation and JSON schema generation.
 Note: Import Simulation from nucleai.simdb.models, not nucleai.core.models.
 
 Classes:
-    ImasUri: Parsed IMAS URI with structured component access
-    ImasDataCollection: Collection of IMAS input/output URIs
     DataObject: SimDB data object (file or IMAS data)
     CodeInfo: Simulation code metadata
     Simulation: SimDB simulation record with metadata
     QueryConstraint: SimDB query constraint with operator
 
 Examples:
-    >>> from nucleai.simdb import get_simulation
+    >>> from nucleai.simdb import fetch_simulation
     >>>
     >>> # Get simulation with IMAS data
-    >>> sim = await get_simulation("100001/2")
+    >>> sim = await fetch_simulation("100001/2")
     >>> print(sim.alias, sim.machine, sim.code.name)
     >>>
-    >>> # Access IMAS data
-    >>> if sim.imas:
-    ...     uri = sim.imas.uri  # Primary IMAS URI
-    ...     print(f"Backend: {uri.backend}")
-    ...     print(f"Remote: {uri.is_remote}")
+    >>> # Access IMAS data (type-safe with ImasUri)
+    >>> if sim.imas_uri:
+    ...     print(f"Backend: {sim.imas_uri.backend}")
+    ...     print(f"Remote: {sim.imas_uri.is_remote}")
     ...
-    ...     # Use with imas-python
-    ...     import imas
-    ...     with imas.DBEntry(str(uri), "r") as entry:
-    ...         equilibrium = entry.get("equilibrium", lazy=True)
+    ...     # Use with IdsLoader
+    ...     from nucleai.imas import IdsLoader
+    ...     loader = IdsLoader.from_simulation(sim)
+    ...     async with loader:
+    ...         equilibrium = await loader.get("equilibrium", lazy=True)
 """
 
 from typing import Literal
-from urllib.parse import parse_qs, urlparse
 
 import pydantic
 from pydantic import Field
 
+from nucleai.core.models import ImasUri
 from nucleai.simdb.metadata import SimulationMetadata
 
 
@@ -77,165 +75,6 @@ class DataObject(pydantic.BaseModel):
         if isinstance(value, dict) and "hex" in value:
             return value["hex"]
         return value
-
-
-class ImasUri(pydantic.BaseModel):
-    """Parsed IMAS URI with structured access to components.
-
-    Supports both modern (AL5) and legacy (AL4) URI formats:
-    - Remote: imas://server:port/uda?path=/work/...&backend=hdf5
-    - Local: imas:hdf5?path=/work/...
-    - Legacy: imas:?shot=100001&run=2&user=public&database=ITER&backend=hdf5
-
-    Attributes:
-        raw: Original URI string
-        backend: Backend type (hdf5, mdsplus, ascii, etc.)
-        is_remote: True if remote UDA access
-        server: Remote server hostname (for remote URIs)
-        port: Remote server port (for remote URIs)
-        path: File system path to data
-        shot: Shot/pulse number (for legacy URIs)
-        run: Run number (for legacy URIs)
-        database: Database name (for legacy URIs)
-        user: User name (for legacy URIs)
-        version: Data version (for legacy URIs)
-
-    Examples:
-        >>> uri = ImasUri.parse("imas://uda.iter.org/uda?path=/work/imas/shared/imasdb/ITER/3/100001/2&backend=hdf5")
-        >>> uri.backend
-        'hdf5'
-        >>> uri.is_remote
-        True
-        >>> uri.server
-        'uda.iter.org'
-        >>> str(uri)  # Returns raw URI for imas.DBEntry()
-        'imas://uda.iter.org/uda?path=/work/imas/shared/imasdb/ITER/3/100001/2&backend=hdf5'
-    """
-
-    raw: str
-    backend: str
-    is_remote: bool = False
-    server: str | None = None
-    port: int | None = None
-    path: str | None = None
-    shot: int | None = None
-    run: int | None = None
-    database: str | None = None
-    user: str | None = None
-    version: str | None = None
-
-    @classmethod
-    def parse(cls, uri: str) -> "ImasUri":
-        """Parse IMAS URI string into structured format.
-
-        Args:
-            uri: IMAS URI string
-
-        Returns:
-            Parsed ImasUri instance
-
-        Examples:
-            >>> uri = ImasUri.parse("imas://uda.iter.org/uda?path=/work/...&backend=hdf5")
-            >>> uri.backend
-            'hdf5'
-        """
-        parsed = urlparse(uri)
-        query = parse_qs(parsed.query) if parsed.query else {}
-
-        # Extract backend
-        backend = query.get("backend", [None])[0]
-        if not backend and parsed.path:
-            # Local format: imas:hdf5?path=...
-            backend = parsed.path.lstrip("/").split("?")[0]
-
-        # Check if remote (UDA)
-        is_remote = parsed.netloc != ""
-        server = parsed.hostname if is_remote else None
-        port = parsed.port if is_remote else None
-
-        # Extract path
-        path = query.get("path", [None])[0]
-
-        # Extract legacy format fields
-        shot = query.get("shot", [None])[0]
-        run = query.get("run", [None])[0]
-        database = query.get("database", [None])[0]
-        user = query.get("user", [None])[0]
-        version = query.get("version", [None])[0]
-
-        # Convert numeric fields
-        shot = int(shot) if shot else None
-        run = int(run) if run else None
-
-        return cls(
-            raw=uri,
-            backend=backend or "unknown",
-            is_remote=is_remote,
-            server=server,
-            port=port,
-            path=path,
-            shot=shot,
-            run=run,
-            database=database,
-            user=user,
-            version=version,
-        )
-
-    def __str__(self) -> str:
-        """Return raw URI string for use with imas.DBEntry()."""
-        return self.raw
-
-
-class ImasDataCollection(pydantic.BaseModel):
-    """IMAS data URIs for simulation inputs and outputs.
-
-    Most simulations have exactly one output URI pointing to an IMAS data entry
-    containing multiple IDS types (equilibrium, core_profiles, etc.).
-
-    Attributes:
-        inputs: List of input IMAS URIs (rarely used)
-        outputs: List of output IMAS URIs (typically one per simulation)
-
-    Examples:
-        >>> # Get the main IMAS URI
-        >>> if sim.imas:
-        ...     with imas.DBEntry(str(sim.imas.uri), "r") as entry:
-        ...         equilibrium = entry.get("equilibrium", lazy=True)
-        >>>
-        >>> # Access specific outputs
-        >>> for uri in sim.imas.outputs:
-        ...     print(f"Backend: {uri.backend}, Path: {uri.path}")
-        >>>
-        >>> # Check if remote
-        >>> if sim.imas.uri and sim.imas.uri.is_remote:
-        ...     print(f"Remote: {uri.server}:{uri.port}")
-    """
-
-    inputs: list[ImasUri] = []
-    outputs: list[ImasUri] = []
-
-    @property
-    def uri(self) -> ImasUri | None:
-        """Get IMAS data entry URI (output preferred, fallback to input).
-
-        Returns the simulation's IMAS data location. Most simulations have
-        exactly one output URI containing all IDS data.
-
-        Returns:
-            ImasUri or None if no IMAS data exists
-
-        Examples:
-            >>> uri = sim.imas.uri
-            >>> if uri:
-            ...     print(f"Backend: {uri.backend}")
-            ...     with imas.DBEntry(str(uri), "r") as entry:
-            ...         data = entry.get("equilibrium")
-        """
-        return self.outputs[0] if self.outputs else (self.inputs[0] if self.inputs else None)
-
-    def __bool__(self) -> bool:
-        """True if any IMAS data exists."""
-        return bool(self.outputs or self.inputs)
 
 
 class CodeInfo(pydantic.BaseModel):
@@ -481,50 +320,50 @@ class Simulation(SimulationSummary):
         - fetch_simulation(): Get complete details by UUID/alias
 
     Attributes (in addition to SimulationSummary):
-        imas_uri: Primary IMAS data URI (empty string if no IMAS data exists)
+        imas_uri: Primary IMAS URI as ImasUri object (None if no IMAS data)
         inputs: All input data objects (FILE + IMAS) with checksums and timestamps
         outputs: All output data objects (FILE + IMAS) with checksums and timestamps
 
     Data Access Patterns:
-        1. Simple IMAS access (most common):
-            >>> sim.imas_uri  # Direct URI string
-            'imas://uda.iter.org/uda?path=/work/imas/...&backend=hdf5'
-            >>>
-            >>> # Use with imas-python
+        1. Direct IDS loading (recommended):
+            >>> from nucleai.imas import IdsLoader
+            >>> loader = IdsLoader.from_simulation(sim)
+            >>> async with loader:
+            ...     equilibrium = await loader.get("equilibrium", lazy=True)
+
+        2. Direct imas-python usage:
             >>> import imas
-            >>> with imas.DBEntry(sim.imas_uri, "r") as entry:
+            >>> with imas.DBEntry(str(sim.imas_uri), "r") as entry:
             ...     equilibrium = entry.get("equilibrium")
 
-        2. Rich IMAS access (parsed structure):
-            >>> sim.imas.uri.backend  # 'hdf5'
-            >>> sim.imas.uri.server   # 'uda.iter.org'
-            >>> sim.imas.uri.path     # File system path
-            >>> sim.imas.outputs      # List of all IMAS URIs
+        3. URI inspection:
+            >>> if sim.imas_uri:
+            ...     print(f"Backend: {sim.imas_uri.backend}")
+            ...     print(f"Remote: {sim.imas_uri.is_remote}")
+            ...     print(f"Path: {sim.imas_uri.path}")
 
-        3. Complete file access (all simulation artifacts):
+        4. Complete file access (all simulation artifacts):
             >>> for obj in sim.outputs:
             ...     print(f"{obj.type}: {obj.uri}")
             ...     print(f"  Checksum: {obj.checksum}")
             ...     print(f"  Uploaded: {obj.datetime}")
-            FILE: file://.../jetto.in
-            FILE: file://.../jetto.out
-            IMAS: imas://uda.iter.org/uda?path=...
 
     Examples:
         >>> from nucleai.simdb import query, fetch_simulation
+        >>> from nucleai.imas import IdsLoader
         >>>
         >>> # Step 1: Fast search (returns summaries)
         >>> summaries = await query({'code.name': 'in:JINTRAC'}, limit=100)
         >>> latest = max(summaries, key=lambda s: s.metadata.datetime or '')
         >>>
-        >>> # Step 2: Get complete details
+        >>> # Step 2: Get complete details with type-safe IMAS URI
         >>> sim = await fetch_simulation(latest.uuid)
         >>>
-        >>> # Now access IMAS data
+        >>> # Step 3: Load IDS data with automatic optimization
         >>> if sim.imas_uri:
-        ...     import imas
-        ...     with imas.DBEntry(sim.imas_uri, "r") as entry:
-        ...         core_profiles = entry.get("core_profiles")
+        ...     loader = IdsLoader.from_simulation(sim)
+        ...     async with loader:
+        ...         core_profiles = await loader.get("core_profiles", lazy=True)
         >>>
         >>> # Access all files
         >>> print(f"Total outputs: {len(sim.outputs)}")
@@ -532,9 +371,19 @@ class Simulation(SimulationSummary):
         >>> print(f"Simulation artifact files: {len(files)}")
     """
 
-    imas_uri: str = ""
+    imas_uri: ImasUri | None = None
     inputs: list[DataObject] = []
     outputs: list[DataObject] = []
+
+    @pydantic.field_validator("imas_uri", mode="before")
+    @classmethod
+    def parse_imas_uri(cls, value):
+        """Parse IMAS URI string to ImasUri object."""
+        if value is None or isinstance(value, str) and not value:
+            return None
+        if isinstance(value, str):
+            return ImasUri.from_string(value)
+        return value
 
     @pydantic.model_validator(mode="after")
     def extract_imas_uri(self) -> "Simulation":
@@ -546,41 +395,9 @@ class Simulation(SimulationSummary):
         if not self.imas_uri and self.outputs:
             for obj in self.outputs:
                 if obj.type == "IMAS":
-                    self.imas_uri = obj.uri
+                    self.imas_uri = ImasUri.from_string(obj.uri)
                     break
         return self
-
-    @property
-    def imas(self) -> ImasDataCollection:
-        """IMAS data URIs with structured access.
-
-        Returns a collection containing parsed IMAS URIs for both inputs and outputs.
-        Most simulations have exactly one output URI.
-
-        Returns:
-            ImasDataCollection with parsed URIs
-
-        Examples:
-            >>> sim = await get_simulation("100001/2")
-            >>>
-            >>> # Get the main URI
-            >>> if sim.imas:
-            ...     uri = sim.imas.uri
-            ...     print(f"Backend: {uri.backend}")
-            ...     with imas.DBEntry(str(uri), "r") as entry:
-            ...         equilibrium = entry.get("equilibrium", lazy=True)
-            >>>
-            >>> # Access all outputs
-            >>> for uri in sim.imas.outputs:
-            ...     print(f"{uri.backend}: {uri.path}")
-            >>>
-            >>> # Check if remote
-            >>> if sim.imas.uri and sim.imas.uri.is_remote:
-            ...     print(f"Server: {sim.imas.uri.server}")
-        """
-        inputs = [ImasUri.parse(obj.uri) for obj in (self.inputs or []) if obj.type == "IMAS"]
-        outputs = [ImasUri.parse(obj.uri) for obj in (self.outputs or []) if obj.type == "IMAS"]
-        return ImasDataCollection(inputs=inputs, outputs=outputs)
 
     @classmethod
     def from_api_response(cls, data: dict) -> "Simulation":

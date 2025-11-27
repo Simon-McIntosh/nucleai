@@ -24,6 +24,7 @@ Quick Start:
 Modules:
     core: Core data models, configuration, exceptions, introspection
     simdb: Query ITER SimDB for fusion simulations
+    imas: IMAS data access with automatic performance optimization
     embeddings: Generate vector embeddings for text and images
     search: Semantic search using ChromaDB vector database
     features: Extract features from IDS data structures
