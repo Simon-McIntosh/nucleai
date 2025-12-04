@@ -96,6 +96,7 @@ from nucleai.simdb.client import (
     list_simulations,
     query,
 )
+from nucleai.simdb.dataframe import query_sql
 from nucleai.simdb.models import CodeInfo, QueryConstraint, Simulation, SimulationSummary
 
 __all__ = [
@@ -107,5 +108,9 @@ __all__ = [
     "Simulation",
     "SimulationSummary",
     "CodeInfo",
+    "CodeInfo",
     "QueryConstraint",
+    "query_sql",
 ]
+
+__agent_exposed__ = True

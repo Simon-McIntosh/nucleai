@@ -27,3 +27,5 @@ from nucleai.search.semantic import semantic_search
 from nucleai.search.vector_store import ChromaDBVectorStore
 
 __all__ = ["ChromaDBVectorStore", "semantic_search"]
+
+__agent_exposed__ = True

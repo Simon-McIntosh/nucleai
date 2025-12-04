@@ -12,3 +12,7 @@ wheels/
 # Automatically created files
 **/_version.py
 .env
+
+# Generated databases
+data/
+plot.html

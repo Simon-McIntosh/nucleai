@@ -208,3 +208,19 @@ See `AGENTS.md` for:
 - Error handling
 
 The code documents itself through introspection.
+## Agent Exposure
+
+Modules intended for AI agent usage must be explicitly marked. This prevents accidental exposure of internal or unstable APIs.
+
+To expose a module to agents:
+1. Add `__agent_exposed__ = True` to the module's `__init__.py`.
+2. The module will then be discoverable via `nucleai.core.introspect.discover_capabilities()`.
+
+```python
+# nucleai/my_module/__init__.py
+"""My new module."""
+
+__agent_exposed__ = True
+```
+
+Agents should always use `discover_capabilities()` to find available tools rather than assuming module existence.

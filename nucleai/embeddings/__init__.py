@@ -25,3 +25,5 @@ Examples:
 from nucleai.embeddings.text import generate_text_embedding
 
 __all__ = ["generate_text_embedding"]
+
+__agent_exposed__ = True

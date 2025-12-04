@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     chromadb_path: Path = Path("./data/chromadb")
     chromadb_collection_name: str = "nucleai_embeddings"
 
+    # DuckDB Configuration
+    duckdb_path: Path = Path("./data/simdb.duckdb")
+
     # Logging
     log_level: str = "INFO"
 

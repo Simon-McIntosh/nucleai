@@ -21,3 +21,5 @@ Examples:
 from nucleai.core import config, exceptions, introspect, models
 
 __all__ = ["config", "exceptions", "introspect", "models"]
+
+__agent_exposed__ = True

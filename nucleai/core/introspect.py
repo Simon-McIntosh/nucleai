@@ -186,12 +186,24 @@ def discover_capabilities() -> dict[str, str]:
         >>> caps['embeddings']
         'nucleai.embeddings'
     """
-    return {
-        "core": "nucleai.core",
-        "simdb": "nucleai.simdb",
-        "embeddings": "nucleai.embeddings",
-        "search": "nucleai.search",
-        "features": "nucleai.features",
-        "plot": "nucleai.plot",
-        "data": "nucleai.data",
-    }
+    import importlib
+    import pkgutil
+
+    import nucleai
+
+    capabilities = {}
+
+    # Iterate over all submodules in nucleai package
+    if hasattr(nucleai, "__path__"):
+        for _, name, _ in pkgutil.iter_modules(nucleai.__path__):
+            try:
+                module_path = f"nucleai.{name}"
+                module = importlib.import_module(module_path)
+
+                # Check for explicit exposure marker
+                if getattr(module, "__agent_exposed__", False):
+                    capabilities[name] = module_path
+            except ImportError:
+                continue
+
+    return capabilities
