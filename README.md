@@ -163,14 +163,13 @@ uv run interrogate -v nucleai
 
 TBD
 
+
 ## Design Assets
 
 ### Current Favicon
 ![Favicon](assets/favicon.png)
 
-### Future Design Direction (Iteration 5)
-We are iterating on the favicon design to depict the "post-fusion" moment. The next planned iteration (blocked by rate limits) uses the following prompt:
-
+### Current Design Prompt (Iteration 5)
 > A scientific 3D favicon design with a **transparent background**.
 > **Scene**: The moment **immediately AFTER** nuclear fusion.
 > **Central Focus**: An **Alpha particle** (Helium-4 nucleus) consisting of a tight, distinct cluster of **2 Orange protons and 2 Blue neutrons**.
