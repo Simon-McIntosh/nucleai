@@ -14,8 +14,8 @@ Functions:
 
 import duckdb
 
-from nucleai.core.config import get_settings
 from nucleai.simdb.models import SimulationSummary
+from nucleai.storage.paths import get_duckdb_path
 
 
 class DuckDBManager:
@@ -27,8 +27,7 @@ class DuckDBManager:
 
     def __init__(self) -> None:
         """Initialize DuckDB manager."""
-        settings = get_settings()
-        self.db_path = settings.duckdb_path
+        self.db_path = get_duckdb_path()
 
         # Ensure directory exists
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

@@ -10,10 +10,10 @@ import typer
 from rich.console import Console
 from rich.progress import Progress
 
-from nucleai.db.manager import init_db, upsert_simulations
 from nucleai.embeddings.text import generate_text_embedding
 from nucleai.search.vector_store import ChromaDBVectorStore
 from nucleai.simdb import query
+from nucleai.storage import init_db, upsert_simulations
 
 app = typer.Typer()
 console = Console()
@@ -41,7 +41,7 @@ async def _build_db_async(limit: int, rebuild: bool) -> None:
     # 1. Initialize DB
     if rebuild:
         console.print("[yellow]Rebuilding database...[/yellow]")
-        from nucleai.db.manager import DuckDBManager
+        from nucleai.storage import DuckDBManager
 
         manager = DuckDBManager()
         conn = manager.get_connection()
@@ -118,7 +118,7 @@ async def _build_db_async(limit: int, rebuild: bool) -> None:
 @app.command()
 def status() -> None:
     """Check status of local database."""
-    from nucleai.db.manager import DuckDBManager
+    from nucleai.storage import DuckDBManager
 
     try:
         manager = DuckDBManager()

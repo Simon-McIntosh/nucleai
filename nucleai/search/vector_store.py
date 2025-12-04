@@ -16,8 +16,8 @@ import anyio
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 
-from nucleai.core.config import get_settings
 from nucleai.core.models import SearchResult
+from nucleai.storage.paths import get_chromadb_path
 
 
 class ChromaDBVectorStore:
@@ -42,22 +42,23 @@ class ChromaDBVectorStore:
         5
     """
 
-    def __init__(self) -> None:
+    def __init__(self, collection_name: str = "nucleai_embeddings") -> None:
         """Initialize ChromaDB vector store.
+
+        Args:
+            collection_name: Name for the ChromaDB collection
 
         Creates or connects to ChromaDB collection specified in configuration.
         """
-        settings = get_settings()
-
         # Create ChromaDB client with persistence
         self.client = chromadb.PersistentClient(
-            path=str(settings.chromadb_path),
+            path=str(get_chromadb_path()),
             settings=ChromaSettings(anonymized_telemetry=False),
         )
 
         # Get or create collection
         self.collection = self.client.get_or_create_collection(
-            name=settings.chromadb_collection_name,
+            name=collection_name,
             metadata={"description": "nucleai embeddings for ITER simulations"},
         )
 

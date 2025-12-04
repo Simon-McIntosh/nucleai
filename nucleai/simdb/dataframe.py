@@ -28,7 +28,7 @@ def query_sql(query: str) -> pd.DataFrame:
         >>> # Query nested JSON metadata
         >>> df = query_sql("SELECT alias, json_extract(metadata, '$.composition.deuterium') as D FROM simulations")
     """
-    from nucleai.db.manager import DuckDBManager
+    from nucleai.storage import DuckDBManager
 
     manager = DuckDBManager()
     conn = manager.get_connection()

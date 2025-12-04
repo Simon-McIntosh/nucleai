@@ -38,7 +38,6 @@ Examples:
 """
 
 from functools import lru_cache
-from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -99,13 +98,6 @@ class Settings(BaseSettings):
     llm_model: str = "anthropic/claude-3.5-sonnet"
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     llm_max_tokens: int = Field(default=4096, gt=0)
-
-    # ChromaDB Configuration
-    chromadb_path: Path = Path("./data/chromadb")
-    chromadb_collection_name: str = "nucleai_embeddings"
-
-    # DuckDB Configuration
-    duckdb_path: Path = Path("./data/simdb.duckdb")
 
     # Logging
     log_level: str = "INFO"
