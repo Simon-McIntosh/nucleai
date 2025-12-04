@@ -95,6 +95,38 @@ class ChromaDBVectorStore:
             )
         )
 
+    async def store_batch(
+        self,
+        ids: list[str],
+        embeddings: list[list[float]],
+        metadatas: list[dict[str, str | float | int]],
+        documents: list[str],
+    ) -> None:
+        """Store multiple embeddings in a single operation.
+
+        More efficient than calling store() in a loop for bulk operations.
+
+        Args:
+            ids: List of unique identifiers
+            embeddings: List of embedding vectors
+            metadatas: List of metadata dictionaries
+            documents: List of source texts
+
+        Examples:
+            >>> store = ChromaDBVectorStore()
+            >>> await store.store_batch(
+            ...     ids=["sim-001", "sim-002"],
+            ...     embeddings=[[0.1] * 1536, [0.2] * 1536],
+            ...     metadatas=[{"machine": "ITER"}, {"machine": "JET"}],
+            ...     documents=["ITER scenario", "JET scenario"]
+            ... )
+        """
+        await anyio.to_thread.run_sync(
+            lambda: self.collection.upsert(
+                ids=ids, embeddings=embeddings, metadatas=metadatas, documents=documents
+            )
+        )
+
     async def search(
         self, query_embedding: list[float], limit: int = 10, filters: dict | None = None
     ) -> list[SearchResult]:
@@ -171,3 +203,40 @@ class ChromaDBVectorStore:
             42
         """
         return await anyio.to_thread.run_sync(lambda: self.collection.count())
+
+    async def contains(self, id: str) -> bool:
+        """Check if embedding with ID exists.
+
+        Args:
+            id: Identifier to check
+
+        Returns:
+            True if ID exists, False otherwise
+        """
+        result = await anyio.to_thread.run_sync(lambda: self.collection.get(ids=[id], include=[]))
+        return len(result["ids"]) > 0
+
+    async def filter_existing_ids(self, ids: list[str], batch_size: int = 100) -> set[str]:
+        """Return subset of IDs that exist in the collection.
+
+        Args:
+            ids: List of IDs to check
+            batch_size: Number of IDs to check per batch
+
+        Returns:
+            Set of IDs that exist in the database
+        """
+        if not ids:
+            return set()
+
+        existing_ids = set()
+
+        # Process in batches to avoid overwhelming the backend
+        for i in range(0, len(ids), batch_size):
+            batch = ids[i : i + batch_size]
+            result = await anyio.to_thread.run_sync(
+                lambda b=batch: self.collection.get(ids=b, include=[])
+            )
+            existing_ids.update(result["ids"])
+
+        return existing_ids

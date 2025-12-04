@@ -10,7 +10,6 @@ import typer
 from rich.console import Console
 from rich.progress import Progress
 
-from nucleai.embeddings.text import generate_text_embedding
 from nucleai.search.vector_store import ChromaDBVectorStore
 from nucleai.simdb import query
 from nucleai.storage import init_db, upsert_simulations
@@ -74,12 +73,26 @@ async def _build_db_async(limit: int, rebuild: bool) -> None:
     console.print("[bold blue]Updating Semantic Search Index...[/bold blue]")
     store = ChromaDBVectorStore()
 
-    with Progress() as progress:
-        task = progress.add_task("[cyan]Generating embeddings...", total=len(sims))
+    # Filter simulations that need embedding
+    sims_to_embed = sims
+    if not rebuild:
+        console.print("[cyan]Checking existing embeddings...[/cyan]")
+        sim_ids = [s.uuid for s in sims]
+        existing_ids = await store.filter_existing_ids(sim_ids)
+        sims_to_embed = [s for s in sims if s.uuid not in existing_ids]
+        console.print(f"[cyan]Found {len(existing_ids)} existing embeddings (skipping).[/cyan]")
+        console.print(f"[cyan]Generating {len(sims_to_embed)} new embeddings...[/cyan]")
 
-        for sim in sims:
+    if not sims_to_embed:
+        console.print("[green]No new embeddings needed.[/green]")
+    else:
+        # Prepare all texts and metadata for batch processing
+        texts: list[str] = []
+        ids: list[str] = []
+        metadatas: list[dict[str, str | float | int]] = []
+
+        for sim in sims_to_embed:
             # Construct text for embedding
-            # Combine relevant fields for semantic search
             text_parts = [
                 f"Machine: {sim.machine}",
                 f"Code: {sim.code.name} {sim.code.version or ''}",
@@ -91,26 +104,51 @@ async def _build_db_async(limit: int, rebuild: bool) -> None:
                 text_parts.append(f"Composition: D={comp.deuterium}, T={comp.tritium}")
 
             text = ". ".join(text_parts)
-
-            try:
-                # Generate embedding
-                embedding = await generate_text_embedding(text)
-
-                # Store in ChromaDB with document content
-                metadata = {
+            texts.append(text)
+            ids.append(sim.uuid)
+            metadatas.append(
+                {
                     "machine": sim.machine,
                     "code": sim.code.name,
                     "alias": sim.alias,
                     "uuid": sim.uuid,
                 }
-                await store.store(
-                    id=sim.uuid, embedding=embedding, metadata=metadata, document=text
-                )
+            )
+
+        # Batch generate embeddings with progress per batch
+        batch_size = 100
+        embeddings: list[list[float]] = []
+
+        with Progress() as progress:
+            task = progress.add_task("[cyan]Generating embeddings...", total=len(texts))
+
+            try:
+                from nucleai.embeddings.text import generate_batch_embeddings
+
+                # Process in batches with progress updates
+                for i in range(0, len(texts), batch_size):
+                    batch_texts = texts[i : i + batch_size]
+                    batch_embeddings = await generate_batch_embeddings(
+                        batch_texts, batch_size=batch_size
+                    )
+                    embeddings.extend(batch_embeddings)
+                    progress.update(task, completed=i + len(batch_texts))
 
             except Exception as e:
-                console.print(f"[red]Failed to embed {sim.alias}: {e}[/red]")
+                console.print(f"[red]Failed to generate embeddings: {e}[/red]")
+                return
 
-            progress.advance(task)
+        # Batch store in ChromaDB
+        with Progress() as progress:
+            task = progress.add_task("[cyan]Storing embeddings...", total=len(embeddings))
+
+            await store.store_batch(
+                ids=ids,
+                embeddings=embeddings,
+                metadatas=metadatas,
+                documents=texts,
+            )
+            progress.update(task, completed=len(embeddings))
 
     console.print("[bold green]Sync Complete![/bold green]")
 

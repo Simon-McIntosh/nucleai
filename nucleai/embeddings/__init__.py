@@ -22,8 +22,8 @@ Examples:
     1536
 """
 
-from nucleai.embeddings.text import generate_text_embedding
+from nucleai.embeddings.text import generate_batch_embeddings, generate_text_embedding
 
-__all__ = ["generate_text_embedding"]
+__all__ = ["generate_text_embedding", "generate_batch_embeddings"]
 
 __agent_exposed__ = True

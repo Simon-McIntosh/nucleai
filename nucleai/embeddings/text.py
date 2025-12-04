@@ -79,3 +79,64 @@ async def generate_text_embedding(text: str) -> list[float]:
             f"Failed to generate embedding: {e}",
             recovery_hint="Check OPENAI_API_KEY and network connection",
         ) from e
+
+
+async def generate_batch_embeddings(texts: list[str], batch_size: int = 100) -> list[list[float]]:
+    """Generate embeddings for multiple texts in batched API calls.
+
+    Processes texts in batches to minimize API round-trips while respecting
+    API limits. Much faster than calling generate_text_embedding in a loop.
+
+    Args:
+        texts: List of texts to embed (each must be non-empty)
+        batch_size: Number of texts per API call (default 100, max 2048)
+
+    Returns:
+        List of embedding vectors in same order as input texts
+
+    Raises:
+        ValueError: If texts is empty or contains empty strings
+        EmbeddingError: If embedding generation fails
+
+    Examples:
+        >>> texts = ["ITER baseline scenario", "DINA simulation", "H-mode plasma"]
+        >>> embeddings = await generate_batch_embeddings(texts)
+        >>> len(embeddings) == len(texts)
+        True
+        >>> all(len(e) == 1536 for e in embeddings)
+        True
+    """
+    if not texts:
+        raise ValueError("texts list cannot be empty")
+
+    # Validate all texts are non-empty
+    for i, text in enumerate(texts):
+        if not text or not text.strip():
+            raise ValueError(f"text at index {i} cannot be empty or whitespace")
+
+    settings = get_settings()
+    client = create_embedding_client()
+
+    all_embeddings: list[list[float]] = []
+
+    # Process in batches
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i : i + batch_size]
+
+        try:
+            response = await client.embeddings.create(
+                input=batch,
+                model=settings.embedding_model,
+                dimensions=settings.embedding_dimensions,
+            )
+            # Extract embeddings in order (API returns in same order as input)
+            batch_embeddings = [item.embedding for item in response.data]
+            all_embeddings.extend(batch_embeddings)
+
+        except Exception as e:
+            raise EmbeddingError(
+                f"Failed to generate batch embeddings (batch starting at {i}): {e}",
+                recovery_hint="Check OPENAI_API_KEY and network connection",
+            ) from e
+
+    return all_embeddings
