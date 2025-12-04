@@ -173,14 +173,17 @@ TBD
 
 
 
-### Current Design Prompt (Iteration 10)
+
+### Current Design Prompt (Iteration 11)
 > A **2D Flat Vector** favicon design with a **transparent background**.
-> **Style**: Ultra-Minimalist, Flat Design, Icon style. **NO 3D**, no shading, no gradients.
-> **Central Focus**: A simple, geometric cluster of **4 flat circles** (2 Burnt Orange, 2 Deep Blue) representing the Alpha particle.
-> **The Network**: A **Multi-Layered Hexagonal Lattice**.
-> -   Imagine two or three layers of hexagonal grids stacked or overlapping (like graphene layers).
-> -   Use **distinct flat shades of Blue** (e.g., Dark Navy for the back layer, Medium Blue for the front) to create a sense of **depth through geometry**, not shading.
-> **Action**: One single **Blue Circle** (neutron) is positioned on a lattice line, captured by the structure.
-> **Colors**: Solid Deep Blues and Solid Burnt Orange. White background (or transparent).
-> **Vibe**: Complex structure, simple rendering. Professional Tech Logo.
+> **Style**: Ultra-Minimalist, Flat Design, Icon style. **NO 3D**.
+> **Central Focus**: A **LARGE, BOLD** Alpha Particle cluster (4 flat circles: 2 Burnt Orange, 2 Deep Blue) taking up the central **40-50%** of the image.
+> **The Network (AI)**: A **Classic Neural Network Diagram**.
+> -   **NOT** a circuit board or PCB.
+> -   A simple, immediately identifiable graph of **connected nodes**.
+> -   Think of the standard "dots and lines" representation of a Deep Neural Network (layers of nodes connected by edges).
+> -   The network forms a circular or hexagonal structure *around* the fusion core, supporting it.
+> **Action**: A single **Blue Neutron** is moving along one of the network connections.
+> **Colors**: Solid Deep Blue (#0033CC) and Solid Burnt Orange (#CC5500). White background (or transparent).
+> **Vibe**: "Fusion + Deep Learning". Clear, Iconic, Simple.
 
