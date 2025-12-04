@@ -62,26 +62,36 @@ class ChromaDBVectorStore:
         )
 
     async def store(
-        self, id: str, embedding: list[float], metadata: dict[str, str | float | int]
+        self,
+        id: str,
+        embedding: list[float],
+        metadata: dict[str, str | float | int],
+        document: str | None = None,
     ) -> None:
-        """Store embedding with metadata in vector database.
+        """Store embedding with metadata and document in vector database.
 
         Args:
             id: Unique identifier for embedding
             embedding: Vector embedding (list of floats)
             metadata: Associated metadata dictionary
+            document: Optional source text that was embedded (for retrieval)
 
         Examples:
             >>> store = ChromaDBVectorStore()
             >>> await store.store(
             ...     id="sim-001",
             ...     embedding=[0.1] * 1536,
-            ...     metadata={"alias": "ITER-001"}
+            ...     metadata={"alias": "ITER-001"},
+            ...     document="ITER baseline scenario 15MA H-mode"
             ... )
         """
         # ChromaDB operations are sync, wrap in anyio for consistency
+        # Use upsert to update existing entries
+        documents = [document] if document else None
         await anyio.to_thread.run_sync(
-            lambda: self.collection.add(ids=[id], embeddings=[embedding], metadatas=[metadata])
+            lambda: self.collection.upsert(
+                ids=[id], embeddings=[embedding], metadatas=[metadata], documents=documents
+            )
         )
 
     async def search(

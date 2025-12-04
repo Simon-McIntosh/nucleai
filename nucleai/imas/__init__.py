@@ -36,7 +36,6 @@ Examples:
 """
 
 from nucleai.core.models import ImasUri
-from nucleai.imas.conversion import ids_to_xarray
 from nucleai.imas.exceptions import (
     ImasAccessError,
     ImasConversionError,
@@ -49,7 +48,5 @@ __all__ = [
     "ImasConversionError",
     "ImasDataError",
     "IdsLoader",
-    "IdsLoader",
     "ImasUri",
-    "ids_to_xarray",
 ]

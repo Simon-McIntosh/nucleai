@@ -96,14 +96,16 @@ async def _build_db_async(limit: int, rebuild: bool) -> None:
                 # Generate embedding
                 embedding = await generate_text_embedding(text)
 
-                # Store in ChromaDB
+                # Store in ChromaDB with document content
                 metadata = {
                     "machine": sim.machine,
                     "code": sim.code.name,
                     "alias": sim.alias,
                     "uuid": sim.uuid,
                 }
-                await store.store(id=sim.uuid, embedding=embedding, metadata=metadata)
+                await store.store(
+                    id=sim.uuid, embedding=embedding, metadata=metadata, document=text
+                )
 
             except Exception as e:
                 console.print(f"[red]Failed to embed {sim.alias}: {e}[/red]")
