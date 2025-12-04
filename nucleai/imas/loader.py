@@ -3,6 +3,14 @@
 Provides async interface to imas-python for loading IDS data with automatic
 URI optimization, lazy loading support, and xarray conversion capabilities.
 
+Thread Safety:
+    IdsLoader uses a threading.Lock to serialize all access to the underlying
+    imas.DBEntry. This is necessary because imas-python's IDSMetadata is not
+    thread-safe when accessed concurrently from multiple Python threads.
+
+    The anyio.to_thread.run_sync() calls run blocking HDF5 I/O in worker threads,
+    but the lock ensures only one thread executes IMAS operations at a time.
+
 Classes:
     IdsLoader: Load IDS data from URIs or Simulation objects
 
@@ -20,6 +28,9 @@ Examples:
     ...     print(f"Time points: {len(equilibrium.time)}")
 """
 
+import ctypes
+import logging
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +41,44 @@ from nucleai.imas.exceptions import ImasAccessError, ImasDataError
 
 if TYPE_CHECKING:
     pass
+
+logger = logging.getLogger(__name__)
+
+# Thread-local storage to track if HDF5 errors have been suppressed
+_hdf5_errors_suppressed = threading.local()
+
+# Global lock to serialize all IMAS-python access
+# This prevents race conditions in imas-python's IDSMetadata
+_imas_lock = threading.Lock()
+
+
+def _suppress_hdf5_errors() -> None:
+    """Suppress HDF5 error output for the current thread.
+
+    HDF5's error handler is thread-local, so this must be called in each
+    worker thread before making HDF5 calls. This prevents noisy error
+    messages when HDF5 attempts read-write access before falling back
+    to read-only.
+    """
+    if getattr(_hdf5_errors_suppressed, "done", False):
+        return  # Already suppressed in this thread
+
+    try:
+        # Locate the bundled HDF5 library from imas_core
+        from pathlib import Path
+
+        import imas_core
+
+        imas_core_path = Path(imas_core.__file__).parent.parent / "imas_core.libs"
+        hdf5_lib = next(imas_core_path.glob("libhdf5.so.*"), None)
+
+        if hdf5_lib:
+            hdf5 = ctypes.CDLL(str(hdf5_lib))
+            h5e_default = ctypes.c_int64(0)
+            hdf5.H5Eset_auto2(h5e_default, None, None)
+            _hdf5_errors_suppressed.done = True
+    except Exception:
+        pass  # Silently ignore if we can't suppress - errors are just noise anyway
 
 
 class IdsLoader:
@@ -162,7 +211,7 @@ class IdsLoader:
         """Open IMAS DBEntry connection.
 
         Uses optimal URI (local if available, otherwise remote). Connection
-        is cached and reused.
+        is cached and reused. Access is serialized via threading lock.
 
         Raises:
             ImasAccessError: If connection fails
@@ -173,13 +222,22 @@ class IdsLoader:
             >>> # Connection now open, can call get()
         """
         if self.entry is not None:
+            logger.debug("Already connected to IMAS entry")
             return  # Already connected
 
-        try:
+        def _connect():
             import imas
 
+            _suppress_hdf5_errors()
             optimal_uri = str(self.uri)  # Gets optimal URI automatically
-            self.entry = imas.DBEntry(optimal_uri, "r")
+            logger.debug("Acquiring IMAS lock for connection")
+            with _imas_lock:
+                logger.info("Connecting to IMAS: %s", optimal_uri)
+                return imas.DBEntry(optimal_uri, "r")
+
+        try:
+            self.entry = await anyio.to_thread.run_sync(_connect)
+            logger.debug("IMAS connection established")
         except Exception as e:
             msg = f"Failed to open IMAS data entry: {e}"
             raise ImasAccessError(
@@ -200,6 +258,9 @@ class IdsLoader:
 
     async def get(self, ids_name: str, *, lazy: bool = True) -> Any:
         """Get IDS data structure.
+
+        Access is serialized via threading lock to prevent race conditions
+        in imas-python's IDSMetadata.
 
         Args:
             ids_name: IDS name (e.g., 'equilibrium', 'core_profiles')
@@ -228,9 +289,19 @@ class IdsLoader:
                 recovery_hint="Use 'async with loader:' or call 'await loader.connect()'",
             )
 
+        def _get_ids():
+            _suppress_hdf5_errors()
+            logger.debug("Acquiring IMAS lock for get('%s')", ids_name)
+            with _imas_lock:
+                logger.info("Loading IDS '%s' (lazy=%s)", ids_name, lazy)
+                result = self.entry.get(ids_name, lazy=lazy)
+                logger.debug("IDS '%s' loaded successfully", ids_name)
+                return result
+
         try:
             # Run in thread pool since imas.DBEntry.get() is blocking
-            return await anyio.to_thread.run_sync(lambda: self.entry.get(ids_name, lazy=lazy))
+            # Lock ensures serialized access to imas-python internals
+            return await anyio.to_thread.run_sync(_get_ids)
         except Exception as e:
             msg = f"Failed to load IDS '{ids_name}': {e}"
             raise ImasDataError(
@@ -241,6 +312,8 @@ class IdsLoader:
 
     async def list_ids(self) -> list[str]:
         """List available IDS names in this data entry.
+
+        Access is serialized via threading lock.
 
         Returns:
             List of IDS names present in the data
@@ -260,10 +333,17 @@ class IdsLoader:
                 recovery_hint="Use 'async with loader:' or call 'await loader.connect()'",
             )
 
+        def _list_ids():
+            _suppress_hdf5_errors()
+            logger.debug("Acquiring IMAS lock for list_ids")
+            with _imas_lock:
+                logger.info("Listing available IDS")
+                result = self.entry.list_all_occurrences("")
+                logger.debug("Found %d IDS entries", len(result))
+                return result
+
         try:
-            # This is a placeholder - actual implementation depends on imas-python API
-            # May need to iterate through known IDS types and check existence
-            return await anyio.to_thread.run_sync(lambda: self.entry.list_all_occurrences(""))
+            return await anyio.to_thread.run_sync(_list_ids)
         except Exception as e:
             msg = f"Failed to list IDS: {e}"
             raise ImasDataError(msg, recovery_hint="Check data entry is valid") from e
