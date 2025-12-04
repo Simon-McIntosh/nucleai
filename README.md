@@ -169,11 +169,15 @@ TBD
 ### Current Favicon
 ![Favicon](assets/favicon.png)
 
-### Current Design Prompt (Iteration 5)
-> A scientific 3D favicon design with a **transparent background**.
-> **Scene**: The moment **immediately AFTER** nuclear fusion.
-> **Central Focus**: An **Alpha particle** (Helium-4 nucleus) consisting of a tight, distinct cluster of **2 Orange protons and 2 Blue neutrons**.
-> **Action**: A single, high-energy **Blue neutron** is shooting away from the center to one side.
-> **The Network (AI)**: A structural Neural Network grid surrounds and **"captures"** this reaction. The grid is **heavily deformed/warped** by the escaping neutron, creating a visual effect like a gravity well or spacetime distortion. The network lines are thick, glowing, and structural, implying an "agent" monitoring the event.
-> **Style**: Matte, scientific visualization (sub-atomic look, not plastic). Deep Blue and Bright Orange. High contrast.
+
+
+### Current Design Prompt (Iteration 7)
+> A balanced, high-tech 3D favicon design with a **transparent background**.
+> **Concept**: "Fusion and AI as Equal Partners".
+> **Central Focus**: A stable **Alpha Particle** (Helium-4) in the exact center (tight cluster of 2 Orange protons, 2 Blue neutrons).
+> **Action**: A single **Blue Neutron** has been emitted and is being **caught** by the Neural Network.
+> **The Network (AI)**: A **Volumetric 3D Lattice** with significant depth (multiple layers of nodes). It is highly structured and regular.
+> **Interaction**: The network is **partially deformed** (elastic response) at the point of neutron capture, showing it can handle the energy without breaking.
+> **Computing Aesthetic**: The nodes and lines are active. While the material is solid/metallic, the connections **pulse with light** to represent computation and analysis. It looks alive and intelligent.
+> **Colors**: Deep Blue and Bright Orange. High contrast.
 
