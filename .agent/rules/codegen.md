@@ -8,6 +8,63 @@ Runtime introspection guide for AI agents working with nucleai.
 
 Critical: do not write scripts to file. Excecute python code directly.
 
+## Code Execution
+
+Always use `uv run` to execute Python code. This ensures the correct environment and dependencies are used.
+
+### Running Scripts
+
+```bash
+uv run scripts/my_script.py
+```
+
+### Running Modules
+
+```bash
+uv run -m nucleai.simdb
+```
+
+### Introspection & Dynamic Execution
+
+For multi-line code execution (especially for the Discovery Pattern), use Bash Heredocs. This avoids escaping issues and allows for readable code.
+
+```bash
+uv run python <<EOF
+import nucleai
+from nucleai.core.introspect import get_docstring
+print(get_docstring(nucleai))
+EOF
+```
+
+Avoid File Artifacts: Do not create temporary files for command output. Print results to stdout, which is automatically captured.
+
+Heredoc Syntax: When using heredocs (`<<EOF`), do not attempt to redirect output (`> file`) on the same line as the closing delimiter. This causes syntax errors where the shell passes the delimiter to Python.
+
+```bash
+
+#Correct - Print to stdout (Preferred)
+uv run python <<EOF
+print("Hello")
+EOF
+
+# Correct - Redirection before heredoc (Only if file is absolutely necessary)
+uv run python > output.txt <<EOF
+print("Hello")
+EOF
+
+#Wrong - Redirection after closing delimiter
+uv run python <<EOF
+print("Hello")
+EOF > output.txt  # Causes "NameError: name 'EOF' is not defined"
+```
+
+For simple one-liners:
+
+```bash
+
+uv run python -c "import nucleai; print(nucleai.__version__)"
+```
+
 ## Discovery Pattern
 
 ```python

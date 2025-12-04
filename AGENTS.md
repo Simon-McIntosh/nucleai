@@ -40,6 +40,29 @@ uv run pytest
 cd /home/ITER/mcintos/Code/nucleai && uv run pytest
 ```
 
+### Heredoc & Output Handling
+
+**Avoid File Artifacts**: Do not create temporary files for command output. Print results to stdout, which is automatically captured.
+
+**Heredoc Syntax**: When using heredocs (`<<EOF`), do not attempt to redirect output (`> file`) on the same line as the closing delimiter. This causes syntax errors where the shell passes the delimiter to Python.
+
+```bash
+# ✅ Correct - Print to stdout (Preferred)
+uv run python <<EOF
+print("Hello")
+EOF
+
+# ✅ Correct - Redirection before heredoc (Only if file is absolutely necessary)
+uv run python > output.txt <<EOF
+print("Hello")
+EOF
+
+# ❌ Wrong - Redirection after closing delimiter
+uv run python <<EOF
+print("Hello")
+EOF > output.txt  # Causes "NameError: name 'EOF' is not defined"
+```
+
 ### Package Management
 - **Package manager**: `uv`
 - **Add dependencies**: `uv add <package>`
