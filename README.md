@@ -162,3 +162,19 @@ uv run interrogate -v nucleai
 ## License
 
 TBD
+
+## Design Assets
+
+### Current Favicon
+![Favicon](assets/favicon.png)
+
+### Future Design Direction (Iteration 5)
+We are iterating on the favicon design to depict the "post-fusion" moment. The next planned iteration (blocked by rate limits) uses the following prompt:
+
+> A scientific 3D favicon design with a **transparent background**.
+> **Scene**: The moment **immediately AFTER** nuclear fusion.
+> **Central Focus**: An **Alpha particle** (Helium-4 nucleus) consisting of a tight, distinct cluster of **2 Orange protons and 2 Blue neutrons**.
+> **Action**: A single, high-energy **Blue neutron** is shooting away from the center to one side.
+> **The Network (AI)**: A structural Neural Network grid surrounds and **"captures"** this reaction. The grid is **heavily deformed/warped** by the escaping neutron, creating a visual effect like a gravity well or spacetime distortion. The network lines are thick, glowing, and structural, implying an "agent" monitoring the event.
+> **Style**: Matte, scientific visualization (sub-atomic look, not plastic). Deep Blue and Bright Orange. High contrast.
+
